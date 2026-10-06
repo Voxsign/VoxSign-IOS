@@ -210,8 +210,10 @@ struct RootView: View {
     }
 
     /// T4 §3a: starting at rows.first, skip typing/execCard/receipt; take the first user/harness bubble's time, formatted HH:mm.
+    /// Western digits by default (§9.2).
     private static let topTimeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_POSIX")
         f.dateFormat = "HH:mm"
         return f
     }()

@@ -25,8 +25,8 @@ struct ClassifySheetView: View {
             VStack(spacing: 0) {
                 // Segments: Role / Domain
                 Picker("Container type", selection: $kind) {
-                    Text("Role").tag(ContainerKind.role)
-                    Text("Domain").tag(ContainerKind.domain)
+                    Text(NSLocalizedString("Role", comment: "")).tag(ContainerKind.role)
+                    Text(NSLocalizedString("Domain", comment: "")).tag(ContainerKind.domain)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -52,7 +52,8 @@ struct ClassifySheetView: View {
                                             Text(c.name)
                                                 .font(.system(size: 15, weight: .medium))
                                                 .foregroundColor(.primary)
-                                            Text(NSLocalizedString("\(store.sessions.filter { $0.containerID == c.id }.count) sessions", comment: ""))
+                                            Text(String(format: NSLocalizedString("%d sessions", comment: ""),
+                                                        store.sessions.filter { $0.containerID == c.id }.count))
                                                 .font(.system(size: 11))
                                                 .foregroundColor(.secondary)
                                         }

@@ -88,61 +88,88 @@ struct BadgeView: View {
 
 struct UserBubbleView: View {
     let bubble: Bubble
+    // DESIGN.md §9.3: user bubble stays physically right-aligned in both LTR and ar (RTL).
+    // We read the layout direction and pin the bubble to the physical right edge manually,
+    // while Arabic text inside still renders RTL natively.
+    @Environment(\.layoutDirection) private var layoutDirection
+    private var isRTL: Bool { layoutDirection == .rightToLeft }
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_POSIX") // Western digits by default (§9.2)
         f.dateFormat = "HH:mm"
         return f
     }()
 
     var body: some View {
-        HStack {
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                HStack(alignment: .center, spacing: 6) {
-                    if bubble.fromVoice {
-                        WaveView()
-                            // UI v3: recording waveform is white; completed state keeps thin white bars (Doubao-style).
-                            .opacity(0.9)
-                    }
-                    Text(bubble.text)
-                        // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                    // UI v3: voice message duration (Doubao-style small "3s").
-                    if let secs = bubble.voiceSeconds {
-                        Text("\(secs)″")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white.opacity(0.85))
-                            .padding(.trailing, 4)
-                    }
-                }
-                .background(VSColor.userBubbleGradientHigh)
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
-                                                  bottomTrailingRadius: 4, topTrailingRadius: 18))
-                .shadow(color: VSColor.shadow, radius: 6, x: 0, y: 2)
-
-                // Attachment chips: light-gray small tags, not overpowering; image attachments show a 40x40 thumbnail when localPath exists.
-                if !bubble.attachments.isEmpty {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        ForEach(bubble.attachments) { att in
-                            attachmentChip(att)
-                        }
-                    }
-                }
-
-                // V4 §3c: right-aligned metadata below the bubble — HH:mm; voice messages append "· Total Xm Xs".
-                metadataRow
+        // LTR: [Spacer][content] (content on right). RTL: [content][Spacer] (content stays on physical right,
+        // because HStack itself flips direction in RTL).
+        Group {
+            if isRTL {
+                VStack(alignment: .leading, spacing: 4) { bubbleContent }
+                Spacer()
+            } else {
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) { bubbleContent }
             }
         }
+    }
+
+    @ViewBuilder
+    private var bubbleContent: some View {
+        HStack(alignment: .center, spacing: 6) {
+            if bubble.fromVoice {
+                WaveView()
+                    // UI v3: recording waveform is white; completed state keeps thin white bars (Doubao-style).
+                    .opacity(0.9)
+            }
+            Text(bubble.text)
+                // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
+                // §9.2: Arabic line height +20% (extra lineSpacing).
+                .font(.system(size: 16))
+                .lineSpacing(3.2)
+                .foregroundColor(.white)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+            // UI v3: voice message duration (Doubao-style small "3s").
+            if let secs = bubble.voiceSeconds {
+                Text("\(secs)″")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+                    .padding(.trailing, 4)
+            }
+        }
+        .background(VSColor.userBubbleGradientHigh)
+        // Tail corner (4pt) stays on physical bottom-right regardless of layout direction.
+        .clipShape(UnevenRoundedRectangle(
+            topLeadingRadius: isRTL ? 18 : 18,
+            bottomLeadingRadius: isRTL ? 4 : 18,
+            bottomTrailingRadius: isRTL ? 18 : 4,
+            topTrailingRadius: isRTL ? 18 : 18))
+        .shadow(color: VSColor.shadow, radius: 6, x: 0, y: 2)
+
+        // Attachment chips: light-gray small tags, not overpowering; image attachments show a 40x40 thumbnail when localPath exists.
+        if !bubble.attachments.isEmpty {
+            VStack(alignment: isRTL ? .leading : .trailing, spacing: 4) {
+                ForEach(bubble.attachments) { att in
+                    attachmentChip(att)
+                }
+            }
+        }
+
+        // V4 §3c: metadata below the bubble — HH:mm; pinned to physical right edge.
+        metadataRow
     }
 
     /// V6.5 metadata under the user bubble: time only (dropped "Total Xs" — low value, keep it clean).
     private var metadataRow: some View {
         HStack(spacing: 4) {
-            Spacer()
-            Text(Self.timeFormatter.string(from: bubble.timestamp))
+            if isRTL {
+                Text(Self.timeFormatter.string(from: bubble.timestamp))
+                Spacer()
+            } else {
+                Spacer()
+                Text(Self.timeFormatter.string(from: bubble.timestamp))
+            }
         }
         .font(.system(size: 11))
         .foregroundColor(.secondary)
@@ -184,33 +211,53 @@ struct UserBubbleView: View {
 
 struct HarnessBubbleView: View {
     let bubble: Bubble
+    // DESIGN.md §9.3: harness bubble stays physically left-aligned in both LTR and ar (RTL).
+    @Environment(\.layoutDirection) private var layoutDirection
+    private var isRTL: Bool { layoutDirection == .rightToLeft }
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_POSIX") // Western digits by default (§9.2)
         f.dateFormat = "HH:mm"
         return f
     }()
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                // V6.5 dropped the "VoxSign·metasystem" sender label (low-value, keep it clean).
-                Text(bubble.text)
-                    // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
-                    .font(.system(size: 16))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(VSColor.harnessBubble)
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 4,
-                                                      bottomTrailingRadius: 18, topTrailingRadius: 18))
-                    // UI v3: AI bubble shadow pressed to nearly invisible (Doubao-style).
-                    .shadow(color: VSColor.shadowSoft, radius: 0.75, x: 0, y: 1)
-
-                // Lightweight info row: cost (hidden entirely if the server omits it) · time + … menu (no main speaker button; infrequent, tucked into the menu).
-                infoRow
+        // LTR: [content][Spacer] (content on left). RTL: [Spacer][content] (content stays on physical left,
+        // because HStack itself flips direction in RTL).
+        Group {
+            if isRTL {
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) { bubbleContent }
+            } else {
+                VStack(alignment: .leading, spacing: 3) { bubbleContent }
+                Spacer()
             }
-            Spacer()
         }
+    }
+
+    @ViewBuilder
+    private var bubbleContent: some View {
+        // V6.5 dropped the "VoxSign·metasystem" sender label (low-value, keep it clean).
+        Text(bubble.text)
+            // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
+            // §9.2: Arabic line height +20% (extra lineSpacing).
+            .font(.system(size: 16))
+            .lineSpacing(3.2)
+            .foregroundColor(.black)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(VSColor.harnessBubble)
+            // Tail corner (4pt) stays on physical bottom-left regardless of layout direction.
+            .clipShape(UnevenRoundedRectangle(
+                topLeadingRadius: isRTL ? 18 : 18,
+                bottomLeadingRadius: isRTL ? 18 : 4,
+                bottomTrailingRadius: isRTL ? 4 : 18,
+                topTrailingRadius: isRTL ? 18 : 18))
+            // UI v3: AI bubble shadow pressed to nearly invisible (Doubao-style).
+            .shadow(color: VSColor.shadowSoft, radius: 0.75, x: 0, y: 1)
+
+        // Lightweight info row: cost (hidden entirely if the server omits it) · time + … menu.
+        infoRow
     }
 
     private var infoRow: some View {
@@ -224,12 +271,12 @@ struct HarnessBubbleView: View {
                 Button {
                     UIPasteboard.general.string = bubble.text
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                    Label(NSLocalizedString("Copy", comment: ""), systemImage: "doc.on.doc")
                 }
                 Button {
                     VoiceOutputService.shared.speak(bubble.text)
                 } label: {
-                    Label("Speak", systemImage: "waveform")
+                    Label(NSLocalizedString("Speak", comment: ""), systemImage: "waveform")
                 }
                 ShareLink(item: bubble.text)
             } label: {

@@ -1,0 +1,162 @@
+/* Arabic (ar) localization — VoxSign iOS.
+   Native-level Modern Standard Arabic (MSA), optimized for the GCC market.
+   Frozen glossary per design/DESIGN.md §9.6. Brand name "VoxSign" is never translated.
+   Western digits used by default (GCC convention). */
+
+"(Screenshot failed to load)" = "(تعذّر تحميل لقطة الشاشة)";
+"Cancel" = "إلغاء";
+"Checking connection…" = "جارٍ التحقق من الاتصال…";
+"Choose machine" = "اختر الجهاز";
+"Cloud" = "السحابة";
+"Confirmation needed" = "يتطلب تأكيدًا";
+"Connected" = "متصل";
+"Create and file" = "إنشاء وأرشفة";
+"Didn't catch that; nothing was sent" = "لم يتم التسجيل، لم يُرسَل شيء";
+"Do you want to run this operation?" = "هل تريد تنفيذ هذه العملية؟";
+"Execute" = "تنفيذ";
+"File into domain" = "أرشفة ضمن نطاق";
+"File into role" = "أرشفة ضمن دور";
+"File session" = "أرشفة الجلسة";
+"Hold 🎤 to talk, or tap ⌨ to type" = "اضغط 🎤 وتحدث، أو اضغط ⌨ للكتابة";
+"Listening…" = "جارٍ الاستماع…";
+"Manage" = "إدارة";
+"Message or voice command…" = "رسالة أو أمر صوتي…";
+"New domain name…" = "اسم النطاق الجديد…";
+"New role name…" = "اسم الدور الجديد…";
+"No domains yet — create one" = "لا توجد نطاقات بعد — أنشئ نطاقًا";
+"No roles yet — create one" = "لا توجد أدوار بعد — أنشئ دورًا";
+"No self-hosted machines; tap \"Manage\" in the top-right to add one" = "لا توجد أجهزة ذاتية الاستضافة؛ اضغط «إدارة» في الأعلى لإضافة جهاز";
+"No sound captured, please speak again" = "لم يُلتقط صوت، يُرجى التحدث مجددًا";
+"No sound heard, please speak" = "لم يُسمع صوت، يُرجى التحدث";
+"Offline · tap the machine name above to switch" = "غير متصل · اضغط على اسم الجهاز أعلاه للتبديل";
+"Offline · voice commands will queue" = "غير متصل · ستُضاف الأوامر الصوتية إلى قائمة الانتظار";
+"Pick one" = "اختر خيارًا";
+"Processing…" = "جارٍ المعالجة…";
+"Recognition failed, press again" = "فشل التعرّف، اضغط مجددًا";
+"Reconnecting…" = "جارٍ إعادة الاتصال…";
+"Release to cancel" = "أفلت للإلغاء";
+"Release to send · Slide up to cancel" = "أفلت للإرسال · اسحب لأعلى للإلغاء";
+"Release to send · Slide down to cancel" = "أفلت للإرسال · اسحب للأسفل للإلغاء";
+"Self-hosted" = "ذاتي الاستضافة";
+"Task error" = "خطأ في المهمة";
+"The recording was empty; nothing was sent" = "التسجيل فارغ؛ لم يُرسَل شيء";
+"Thinking…" = "جارٍ التفكير…";
+"Total %d min %d s" = "المدة %d د %d ث";
+"Total %d s" = "المدة %d ث";
+"Undo" = "تراجع";
+"Unnamed server" = "خادم بلا اسم";
+"Voice unavailable: please allow Microphone and Speech Recognition in Settings → VoxSign" = "الصوت غير متاح؛ يُرجى السماح بالوصول إلى الميكروفون والتعرّف على الكلام في الإعدادات → VoxSign";
+"VoxSign Cloud" = "سحابة VoxSign";
+"What would you like me to do?" = "ما الذي تريد منّي تنفيذه؟";
+"Zero-config; uses the VoxSign cloud service." = "بدون إعداد؛ يستخدم خدمة سحابة VoxSign.";
+"🎤 Hold to talk" = "🎤 اضغط وتحدث";
+"Tap \"New\" in the top-right to start a new chat" = "اضغط «جديد» في الأعلى لبدء محادثة جديدة";
+
+/* --- Drawer / session list --- */
+"Sessions" = "الجلسات";
+"New" = "جديد";
+"Ungrouped" = "غير مصنّف";
+"No sessions yet" = "لا توجد جلسات بعد";
+"New Chat" = "محادثة جديدة";
+"Current" = "الحالية";
+"Settings" = "الإعدادات";
+"File" = "أرشفة";
+"Unfile" = "إلغاء الأرشفة";
+"Delete" = "حذف";
+"%d sessions" = "%d جلسات";
+
+/* --- Message bubble menu --- */
+"Copy" = "نسخ";
+"Speak" = "تشغيل صوتي";
+
+/* --- Classify sheet --- */
+"Role" = "دور";
+"Domain" = "نطاق";
+
+/* --- Settings (main) --- */
+"Connection mode" = "وضع الاتصال";
+"Cloud · default" = "السحابة · افتراضي";
+"Connection state" = "حالة الاتصال";
+"Offline" = "غير متصل";
+"Latency %d ms" = "زمن الاستجابة %d مللي ث";
+"Re-probe now" = "إعادة الفحص الآن";
+"Speech" = "الصوت";
+"Speak replies (TTS)" = "نطق الردود (تحويل النص إلى كلام)";
+"Rate" = "السرعة";
+"Play sample" = "تشغيل نموذج";
+"Background" = "في الخلفية";
+"Flush offline queue" = "إرسال قائمة الانتظار غير المتصل";
+"Version" = "الإصدار";
+"Done" = "تم";
+"OK" = "حسنًا";
+"Unknown error" = "خطأ غير معروف";
+"Google sign-in failed" = "فشل تسجيل الدخول بحساب Google";
+"Account" = "الحساب";
+"Plan" = "الباقة";
+"Today's quota" = "حصة اليوم";
+"Trial" = "تجريبي";
+"until %@" = "حتى %@";
+"Refresh session" = "تحديث الجلسة";
+"Sign out" = "تسجيل الخروج";
+"Sign in with Google" = "تسجيل الدخول باستخدام Google";
+"Cloud: the default mode, sign in with Google and go. Self-hosted: add your own Harness server (IP address or machine code)." = "السحابة: الوضع الافتراضي، سجّل الدخول بحساب Google وابدأ فورًا. ذاتي الاستضافة: أضف خادم Harness الخاص بك (عنوان IP أو رمز الجهاز).";
+"No server address or token needed" = "لا حاجة إلى عنوان خادم أو رمز مميّز";
+"Servers (self-hosted)" = "الخوادم (ذاتية الاستضافة)";
+"No self-hosted servers yet" = "لا توجد خوادم ذاتية استضافة بعد";
+"Add one to connect · supports IP address or machine code" = "أضف خادمًا للاتصال · يدعم عنوان IP أو رمز الجهاز";
+"Add server" = "إضافة خادم";
+"Name" = "الاسم";
+"URL http://…" = "الرابط http://…";
+"Bearer Token" = "الرمز المميّز";
+"Machine-code bound" = "مرتبط برمز الجهاز";
+"Cloud relay" = "ترحيل سحابي";
+"Test connection" = "اختبار الاتصال";
+"Choose a method" = "اختر طريقة";
+"IP address" = "عنوان IP";
+"Enter IP + port + token" = "أدخل IP + المنفذ + الرمز";
+"Machine code" = "رمز الجهاز";
+"Machine code from install; auto-located" = "رمز الجهاز من التثبيت؛ يُحدَّد تلقائيًا";
+"Self-hosted starts with an empty list; no servers are preconfigured." = "يبدأ الوضع ذاتي الاستضافة بقائمة فارغة؛ لا توجد خوادم مُعدّة مسبقًا.";
+"Back" = "رجوع";
+"Server" = "الخادم";
+"Name (e.g. Office Mac)" = "الاسم (مثال: مكتب Mac)";
+"http://192.168.x.x:8897" = "http://192.168.x.x:8897";
+"Bearer Token (optional)" = "الرمز المميز (اختياري)";
+"Access via cloud relay" = "الوصول عبر الترحيل السحابي";
+"Private address detected: an external phone cannot reach it directly; it will be relayed via the cloud (relay must be enabled on the LAN side)." = "تم اكتشاف عنوان خاص: لا يمكن للهاتف الخارجي الوصول إليه مباشرة؛ ستتم عبر الترحيل السحابي (يجب تفعيل الترحيل على الشبكة المحلية).";
+"Save and check connection" = "حفظ وفحص الاتصال";
+"Checking…" = "جارٍ الفحص…";
+"Save" = "حفظ";
+"Look up and bind" = "البحث والربط";
+"Looking up machine code…" = "جارٍ البحث عن رمز الجهاز…";
+"AB12-CD34-EF56" = "AB12-CD34-EF56";
+"Enter the machine code generated at Harness install; the cloud locates this machine automatically." = "أدخل رمز الجهاز المُنشأ عند تثبيت Harness؛ تحدد السحابة موقع هذا الجهاز تلقائيًا.";
+"Machine" = "الجهاز";
+"Address" = "العنوان";
+"Connection" = "الاتصال";
+"Cloud relay (cross-network)" = "ترحيل سحابي (عبر الشبكات)";
+"Direct same-network" = "اتصال مباشر داخل الشبكة";
+"Cannot connect: both the private address and the cloud relay are unreachable (confirm the server is online and relay is enabled on the LAN side)" = "تعذّر الاتصال: لا يمكن الوصول إلى العنوان الخاص ولا الترحيل السحابي (تأكد من أن الخادم متصل ومن تفعيل الترحيل على الشبكة المحلية)";
+"Cannot connect to this address (confirm the server is online and the address is correct)" = "تعذّر الاتصال بهذا العنوان (تأكد من أن الخادم متصل وأن العنوان صحيح)";
+"Cross-network: will be saved as \"cloud relay\" mode, relayed on demand (disconnects when idle)." = "عبر الشبكات: سيُحفظ بوضع «الترحيل السحابي»، يُرحَّل عند الطلب (ينقطع عند الخمول).";
+"Cannot connect (confirm the machine is online and the cloud relay is available)" = "تعذّر الاتصال (تأكد من أن الجهاز متاح وأن الترحيل السحابي متوفّر)";
+"Cannot connect (confirm the machine is online)" = "تعذّر الاتصال (تأكد من أن الجهاز متاح)";
+"Free (within daily quota)" = "مجاني (ضمن الحصة اليومية)";
+"Prime" = "بريميم";
+"Enterprise" = "مؤسسات";
+"Unbind" = "فك الارتباط";
+"Current server" = "الخادم الحالي";
+
+/* --- Attachment panel --- */
+"Pending resources (%d)" = "الموارد المعلّقة (%d)";
+"Paste text" = "لصق نص";
+"Read from clipboard" = "قراءة من الحافظة";
+"Add" = "إضافة";
+"Link" = "رابط";
+"https://…" = "https://…";
+"Pick an image from Photos" = "اختر صورة من الصور";
+"Image" = "صورة";
+"Choose file (PDF / text / image…)" = "اختر ملفًا (PDF / نص / صورة…)";
+"Once chosen, it is sent as a file attachment with the message." = "بمجرد الاختيار، يُرسَل كمرفق مع الرسالة.";
+"Add resource" = "إضافة مورد";
+"Text" = "نص";

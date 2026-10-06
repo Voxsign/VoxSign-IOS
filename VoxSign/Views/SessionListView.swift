@@ -16,6 +16,11 @@ struct SessionDrawerView: View {
     var onClose: () -> Void
     /// Open Settings (V6.1: the Settings entry moved to the drawer's bottom-left).
     var onSettings: () -> Void
+    // DESIGN.md §9.3: in ar (RTL) folder chevrons point left when collapsed.
+    @Environment(\.layoutDirection) private var layoutDirection
+    private var isRTL: Bool { layoutDirection == .rightToLeft }
+    /// Collapsed chevron rotation: LTR rotates -90 (points right); RTL rotates +90 (points left).
+    private var collapsedRotation: Double { isRTL ? 90 : -90 }
 
     /// V6.2 collapse state: fully expanded by default; tap a container row to collapse/expand (folder relationship).
     @State private var collapsed: Set<String> = []
@@ -64,7 +69,7 @@ struct SessionDrawerView: View {
 
                 Spacer()
 
-                Text("Sessions")
+                Text(NSLocalizedString("Sessions", comment: ""))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.black)
 
@@ -74,7 +79,7 @@ struct SessionDrawerView: View {
                     model.newSession()
                     onClose()
                 } label: {
-                    Label("New", systemImage: "square.and.pencil")
+                    Label(NSLocalizedString("New", comment: ""), systemImage: "square.and.pencil")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black)
                         .padding(.horizontal, 10)
@@ -107,7 +112,7 @@ struct SessionDrawerView: View {
                                 Image(systemName: "tray")
                                     .font(.system(size: 13))
                                     .foregroundColor(.secondary)
-                                Text("Ungrouped")
+                                Text(NSLocalizedString("Ungrouped", comment: ""))
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundColor(.primary)
                                 Text("\(ungrouped.count)")
@@ -117,7 +122,7 @@ struct SessionDrawerView: View {
                                 Image(systemName: "chevron.down")
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.secondary)
-                                    .rotationEffect(.degrees(collapsed.contains("__ungrouped__") ? -90 : 0))
+                                    .rotationEffect(.degrees(collapsed.contains("__ungrouped__") ? collapsedRotation : 0))
                             }
                             .contentShape(Rectangle())
                         }
@@ -161,7 +166,7 @@ struct SessionDrawerView: View {
                             Image(systemName: "bubble.left.and.bubble.right")
                                 .font(.system(size: 22))
                                 .foregroundColor(Color.black.opacity(0.25))
-                            Text("No sessions yet")
+                            Text(NSLocalizedString("No sessions yet", comment: ""))
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                             Text(NSLocalizedString("Tap \"New\" in the top-right to start a new chat", comment: ""))
@@ -184,7 +189,7 @@ struct SessionDrawerView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 14, weight: .medium))
-                    Text("Settings")
+                    Text(NSLocalizedString("Settings", comment: ""))
                         .font(.system(size: 14, weight: .medium))
                     Spacer()
                 }
@@ -218,7 +223,7 @@ struct SessionDrawerView: View {
                        Button {
                            classifyTarget = s
                        } label: {
-                           Label("File", systemImage: "folder.badge.plus")
+                           Label(NSLocalizedString("File", comment: ""), systemImage: "folder.badge.plus")
                        }
                        .tint(.blue)
                        // Already filed -> can move back to ungrouped
@@ -226,7 +231,7 @@ struct SessionDrawerView: View {
                            Button {
                                model.unclassifySession(s.id)
                            } label: {
-                               Label("Unfile", systemImage: "arrow.uturn.backward")
+                               Label(NSLocalizedString("Unfile", comment: ""), systemImage: "arrow.uturn.backward")
                            }
                            .tint(.gray)
                        }
@@ -236,7 +241,7 @@ struct SessionDrawerView: View {
                            // deleteSession returns false (only one left) -> silently ignore.
                            _ = model.deleteSession(s.id)
                        } label: {
-                           Label("Delete", systemImage: "trash")
+                           Label(NSLocalizedString("Delete", comment: ""), systemImage: "trash")
                        }
                    }
     }
@@ -260,7 +265,7 @@ struct SessionDrawerView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
-                    .rotationEffect(.degrees(collapsed.contains(c.id) ? -90 : 0))
+                    .rotationEffect(.degrees(collapsed.contains(c.id) ? collapsedRotation : 0))
             }
             .contentShape(Rectangle())
         }
@@ -283,7 +288,7 @@ private struct SessionRow: View {
                 .frame(width: 5, height: 5)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.title.isEmpty ? "New Chat" : session.title)
+                Text(session.title.isEmpty ? NSLocalizedString("New Chat", comment: "") : session.title)
                     .font(.system(size: 15, weight: isCurrent ? .semibold : .regular))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -293,7 +298,7 @@ private struct SessionRow: View {
             }
             Spacer()
             if isCurrent {
-                Text("Current")
+                Text(NSLocalizedString("Current", comment: ""))
                     .font(.system(size: 11))
                     .foregroundColor(VSColor.blue)
             }
@@ -302,9 +307,10 @@ private struct SessionRow: View {
         .onTapGesture { onTap() }
     }
 
-    /// Relative time: today -> HH:mm; this year -> MM-dd HH:mm; earlier -> yyyy-MM-dd.
+    /// Relative time: today -> HH:mm; this year -> MM-dd HH:mm; earlier -> yyyy-MM-dd. Western digits by default (§9.2).
     private func relativeTime(_ d: Date) -> String {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_POSIX")
         if Calendar.current.isDateInToday(d) {
             f.dateFormat = "HH:mm"
         } else if Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year) {

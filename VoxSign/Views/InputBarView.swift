@@ -20,6 +20,9 @@ struct InputBarView: View {
     #if canImport(Speech)
     @EnvironmentObject var speech: SpeechRecognizer
     #endif
+    // DESIGN.md §9.3: in ar (RTL) the hold-to-talk "slide up to cancel" mirrors to slide down.
+    @Environment(\.layoutDirection) private var layoutDirection
+    private var isRTL: Bool { layoutDirection == .rightToLeft }
 
     // Attachment panel (+ -> Sheet)
     @State private var showAttachPanel: Bool = false
@@ -278,9 +281,14 @@ struct InputBarView: View {
         return NSLocalizedString("Listening…", comment: "")
     }
 
-    /// Bottom caption: cancelling -> "Release to cancel"; otherwise -> "Release to send · Slide up to cancel".
+    /// Bottom caption: cancelling -> "Release to cancel"; otherwise -> "Release to send · Slide up/down to cancel" (mirrored in RTL per §9.3).
     private var holdBarText: String {
-        cancelling ? NSLocalizedString("Release to cancel", comment: "") : NSLocalizedString("Release to send · Slide up to cancel", comment: "")
+        if cancelling {
+            return NSLocalizedString("Release to cancel", comment: "")
+        }
+        // In RTL, the cancel gesture is a swipe DOWN, so the hint says "Slide down to cancel".
+        let key = isRTL ? "Release to send · Slide down to cancel" : "Release to send · Slide up to cancel"
+        return NSLocalizedString(key, comment: "")
     }
 
     // MARK: - Held-state vertical waveform bars (defined here for Plan B; MessageViews' WaveView is untouched)
@@ -457,8 +465,9 @@ struct InputBarView: View {
                         speech.startHold()
                     }
                 }
-                // Swipe up -80pt -> cancel; slide back above -80pt -> resume recording (Doubao's reversible feel).
-                let c = v.translation.height < -80
+                // Swipe -80pt in the cancel direction -> cancel; slide back -> resume recording (Doubao's reversible feel).
+                // §9.3: in RTL the cancel direction mirrors from swipe-UP to swipe-DOWN.
+                let c = isRTL ? (v.translation.height > 80) : (v.translation.height < -80)
                 if c != cancelling { cancelling = c }
             }
             .onEnded { v in
@@ -468,8 +477,9 @@ struct InputBarView: View {
                 let wasInitiator = holdInitiated
                 holdInitiated = false
                 if speech.isRecording {
-                    if cancelling || v.translation.height < -80 {
-                        speech.cancelHold()   // swipe-up cancel: do not send
+                    let cancelTriggered = isRTL ? (v.translation.height > 80) : (v.translation.height < -80)
+                    if cancelling || cancelTriggered {
+                        speech.cancelHold()   // swipe-cancel: do not send
                     } else {
                         speech.stopHold()     // release: auto-send after recognition
                     }
