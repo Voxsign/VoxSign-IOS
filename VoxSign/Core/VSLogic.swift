@@ -47,11 +47,33 @@ enum VSLogic {
         "req-" + UUID().uuidString.lowercased()
     }
 
-    // MARK: - Receipt four-line parsing (inverse of contract.RenderReceipt)
+    // MARK: - D0 契约：outcome.reply 规范化（Phase 1）
+    //
+    /**
+     * 【伪代码逻辑层】（必写：reply 是服务端下发的"回答正文"，客户端唯一可信来源）
+     *   wire 形态 Phase1 = 纯文本字符串：  "reply": "今天天气晴"
+     *   防御性兼容对象形态：              "reply": {"text": "今天天气晴"}
+     *   规则：
+     *     - 字符串：非空即直取；
+     *     - 字典：取 ["text"] 字符串；
+     *     - 其余 / 空串 → nil（上层按"无回答"诚实渲染，禁止伪造完成）。
+     *   注意：本函数不做任何"补全/润色/造文案"——服务端没给回答就是没给。
+     */
+    static func normalizeReply(_ any: Any?) -> String? {
+        if let s = any as? String {
+            return s.isEmpty ? nil : s
+        }
+        if let dict = any as? [String: Any],
+           let s = dict["text"] as? String, !s.isEmpty {
+            return s
+        }
+        return nil
+    }
 
-    /// The server renders exactly four lines: Action / File / Result / Undo.
-    /// Tolerant: missing lines, half/full-width colons, extra lines, surrounding whitespace —
-    /// never crashes; lines are bucketed by their leading label.
+    // MARK: - 回执四行解析（contract.RenderReceipt 的反向解析）
+    //
+    /// server 渲染恰好四行：动作/文件/结果/撤销。
+    /// 容错：行缺失 / 全半角冒号 / 多余行 / 前后空白 都不炸，按行首标签归位。
     static func parseReceipt(_ text: String?) -> Receipt {
         var out = Receipt()
         guard let text = text else { return out }

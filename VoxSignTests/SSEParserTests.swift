@@ -41,7 +41,7 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(p.feed("event: done\ndata: {\"seq\":5,\"receipt\":\"Action: X\"}").count, 0)
         let evts = p.feed("\n\n")
         XCTAssertEqual(evts.count, 1)
-        guard case .done(let seq, let receipt, _, _, _) = evts[0] else { return XCTFail() }
+        guard case .done(let seq, let receipt, _, _, _, _) = evts[0] else { return XCTFail() }
         XCTAssertEqual(seq, 5)
         XCTAssertEqual(receipt, "Action: X")
         XCTAssertTrue(evts[0].isTerminal)
