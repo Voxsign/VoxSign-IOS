@@ -2,7 +2,7 @@
 //  SSEParserTests.swift
 //  VoxSignTests
 //
-//  SSE 事件解析 XCTest：标准分帧、seq 递增、断线重连 after、打断三语义字段。
+//  SSE event-parsing XCTest: standard framing, seq increments, reconnect after=, interrupt three-semantic fields.
 //
 
 import XCTest
@@ -10,69 +10,69 @@ import XCTest
 
 final class SSEParserTests: XCTestCase {
 
-    /// 喂入一段完整的多事件文本，应依次解析出事件。
+    /// Feed a complete multi-event stream; events should parse out in order.
     func testParseMultiEvent() {
         let stream =
             "event: stage\n" +
-            "data: {\"seq\":1,\"role\":\"planner\",\"phase\":\"classify\",\"step\":\"意图分类\"}\n\n" +
+            "data: {\"seq\":1,\"role\":\"planner\",\"phase\":\"classify\",\"step\":\"Intent\"}\n\n" +
             "event: need_ask\n" +
-            "data: {\"seq\":2,\"question\":\"哪个文件？\",\"options\":[{\"id\":\"f1\",\"label\":\"notes.md\"}]}\n\n"
+            "data: {\"seq\":2,\"question\":\"which file?\",\"options\":[{\"id\":\"f1\",\"label\":\"notes.md\"}]}\n\n"
 
         let p = SSEParser()
         let evts = p.feed(stream)
         XCTAssertEqual(evts.count, 2)
 
-        guard case .stage(let seq, let role, _, let step) = evts[0] else { return XCTFail("第一个应为 stage") }
+        guard case .stage(let seq, let role, _, let step) = evts[0] else { return XCTFail("first should be stage") }
         XCTAssertEqual(seq, 1)
         XCTAssertEqual(role, "planner")
-        XCTAssertEqual(step, "意图分类")
+        XCTAssertEqual(step, "Intent")
 
-        guard case .ask(let seq2, let q, let opts) = evts[1] else { return XCTFail("第二个应为 ask") }
+        guard case .ask(let seq2, let q, let opts) = evts[1] else { return XCTFail("second should be ask") }
         XCTAssertEqual(seq2, 2)
-        XCTAssertEqual(q, "哪个文件？")
+        XCTAssertEqual(q, "which file?")
         XCTAssertEqual(opts.count, 1)
         XCTAssertEqual(opts[0].id, "f1")
         XCTAssertEqual(p.lastSeq, 2)
     }
 
-    /// 半截事件留在 buffer，下一段补全后才吐出。
+    /// A half event stays in the buffer and is only emitted once the next chunk completes it.
     func testPartialFrame() {
         let p = SSEParser()
-        XCTAssertEqual(p.feed("event: done\ndata: {\"seq\":5,\"receipt\":\"动作：X\"}").count, 0)
+        XCTAssertEqual(p.feed("event: done\ndata: {\"seq\":5,\"receipt\":\"Action: X\"}").count, 0)
         let evts = p.feed("\n\n")
         XCTAssertEqual(evts.count, 1)
         guard case .done(let seq, let receipt, _, _, _) = evts[0] else { return XCTFail() }
         XCTAssertEqual(seq, 5)
-        XCTAssertEqual(receipt, "动作：X")
+        XCTAssertEqual(receipt, "Action: X")
         XCTAssertTrue(evts[0].isTerminal)
     }
 
-    /// 多行 data（SSE 规范：data 行以 \n 拼接）。
+    /// Multi-line data (SSE spec: data lines joined by \n).
     func testMultilineData() {
         let p = SSEParser()
-        let evts = p.feed("event: done\ndata: {\"seq\":3,\ndata: \"receipt\":\"动作：A\"}\n\n")
+        let evts = p.feed("event: done\ndata: {\"seq\":3,\ndata: \"receipt\":\"Action: A\"}\n\n")
         XCTAssertEqual(evts.count, 1)
-        // 多行 data 拼接后仍应是合法 JSON（本例特意不合法 → 不崩，归 unknown）
-        // 改喂一个合法多行示例：
+        // After joining multi-line data the result must still be valid JSON (this case is deliberately invalid -> no crash, treated as unknown).
+        // Feed a valid multi-line example instead:
         let p2 = SSEParser()
         let evts2 = p2.feed("data: {\"seq\":4}\n\n")
         XCTAssertEqual(evts2.count, 1)
     }
 
-    /// 打断事件三语义字段映射。
+    /// Interrupt event three-semantic field mapping.
     func testInterruptSemantics() {
         let p = SSEParser()
-        let evts = p.feed("event: interrupt\ndata: {\"seq\":7,\"applied\":[\"已生效：NOTE 追加（notes.md）\"],\"notApplied\":[\"后续阶段已中止\"],\"canRollback\":true}\n\n")
+        let evts = p.feed("event: interrupt\ndata: {\"seq\":7,\"applied\":[\"Applied: NOTE append (notes.md)\"],\"notApplied\":[\"Later stages aborted\"],\"canRollback\":true}\n\n")
         XCTAssertEqual(evts.count, 1)
         guard case .interrupt(_, let applied, let notApplied, let canRollback) = evts[0] else {
-            return XCTFail("应为 interrupt")
+            return XCTFail("should be interrupt")
         }
         XCTAssertEqual(applied.count, 1)
-        XCTAssertEqual(notApplied, ["后续阶段已中止"])
+        XCTAssertEqual(notApplied, ["Later stages aborted"])
         XCTAssertTrue(canRollback)
     }
 
-    /// 未知事件类型不崩，归 unknown。
+    /// Unknown event type does not crash; classified as unknown.
     func testUnknownEvent() {
         let p = SSEParser()
         let evts = p.feed("event: heartbeat\ndata: {\"seq\":9}\n\n")
@@ -82,7 +82,7 @@ final class SSEParserTests: XCTestCase {
         XCTAssertFalse(evts[0].isTerminal)
     }
 
-    /// 终态事件：done/failed/canceled。
+    /// Terminal events: done/failed/canceled.
     func testTerminalEvents() {
         let p = SSEParser()
         let done = p.feed("event: done\ndata: {\"seq\":10}\n\n")[0]
@@ -93,7 +93,7 @@ final class SSEParserTests: XCTestCase {
         XCTAssertTrue(canceled.isTerminal)
     }
 
-    /// 重连 URL 拼接 ?after=<lastSeq>。
+    /// Reconnect URL appends ?after=<lastSeq>.
     func testReconnectURL() {
         let base = URL(string: "http://1.2.3.4:8765/v1/tasks/t1/events")!
         let url = SSEParser.reconnectURL(base: base, after: 7)

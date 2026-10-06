@@ -2,8 +2,8 @@
 //  VoiceOutputService.swift
 //  VoxSign
 //
-//  T3 豆包式交互·语音朗读（TTS）：Harness 的回复/决策点问题到达即朗读，
-//  用户不用看屏（豆包 App 同款体验）。端侧 AVSpeechSynthesizer，中文 zh-CN。
+//  T3 voice output (TTS): speaks harness replies / decision-point questions aloud as they
+//  arrive, so the user doesn't have to look at the screen. On-device AVSpeechSynthesizer.
 //
 
 import Foundation
@@ -12,11 +12,11 @@ import AVFoundation
 final class VoiceOutputService: ObservableObject {
     static let shared = VoiceOutputService()
 
-    /// 是否启用朗读（豆包默认开；设置页可关）。
+    /// Whether speech is enabled (on by default; toggle in Settings).
     @Published var enabled: Bool {
         didSet { defaults.set(enabled, forKey: enabledKey) }
     }
-    /// 朗读语速（0.4~0.6，中文舒适区间）。
+    /// Speech rate (0.4~0.6, comfortable range).
     @Published var rate: Float {
         didSet { defaults.set(rate, forKey: rateKey) }
     }
@@ -32,21 +32,21 @@ final class VoiceOutputService: ObservableObject {
         rate = min(max(r, 0.4), 0.6)
     }
 
-    /// 朗读一段文本（中文）。enabled 关闭 / 文本为空时不动作。
+    /// Speak a piece of text. No-op when disabled or empty.
     func speak(_ text: String) {
         guard enabled else { return }
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        // 打断上一段（连续回复时只说最新的）。
+        // Interrupt the previous utterance (on consecutive replies only the newest is spoken).
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
         let utterance = AVSpeechUtterance(string: t)
-        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = rate
         utterance.pitchMultiplier = 1.0
         synthesizer.speak(utterance)
     }
 
-    /// 立即停止朗读（用户再次按住说话 / 切后台时可调）。
+    /// Stop speaking immediately (call when the user holds to talk again / backgrounds the app).
     func stop() {
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)

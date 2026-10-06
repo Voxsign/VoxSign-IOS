@@ -2,18 +2,22 @@
 //  VSLogic.swift
 //  VoxSign
 //
-//  纯逻辑层（无网络、无 UI、无 DispatchQueue）——1:1 移植自 web/logic.js（VSLogic）。
-//  所有"判断/裁决/状态机"集中在这里，便于 XCTest 断言与后续复用。
-//  纯渲染/样式豁免（不在此文件）。
+//  Pure-logic layer: terminal/decision state machine, receipt four-line parsing, undo-button
+//  verdict, lightweight badge compression, one-decision-point routing, role mapping, interrupt
+//  system bar, request id, voice trigger phrases, exec-card stage model, auto-naming.
+//  No UI / networking dependencies — fully covered by unit tests.
 //
 
 import Foundation
 
 enum VSLogic {
 
-    /// 执行卡七阶段（对齐 pipeline 用户可见决策/执行点）。
+    // MARK: - Exec card: seven pipeline stages
+
+    /// Exec card's seven user-visible pipeline stages (aligned with the pipeline's decision /
+    /// execution points). The open-source client speaks the English contract.
     static let execStages: [String] = [
-        "意图分类", "域裁决", "风险分级", "确认闸", "执行", "校验", "归因"
+        "Intent", "Domain", "Risk", "Confirm Gate", "Execute", "Verify", "Attribution"
     ]
 
     static let roleLabels: [String: String] = [
@@ -22,72 +26,74 @@ enum VSLogic {
         "verifier": "Verifier"
     ]
 
-    // MARK: - 终态 / 决策点状态词（对齐 INTERACT-v1）
+    // MARK: - Terminal / decision state vocabulary (aligned with INTERACT-v1)
 
-    /// 终态：done/canceled/interrupted（轮询到此停）。
+    /// Terminal states: done/canceled/interrupted (polling stops here).
     static func isTerminal(_ status: String?) -> Bool {
         guard let s = status else { return false }
         return s == "done" || s == "canceled" || s == "interrupted"
     }
 
-    /// 决策点：need_ask/need_confirm（挂起，暂停轮询等用户 answer）。
+    /// Decision points: need_ask/need_confirm (suspended; polling pauses waiting for the user answer).
     static func isDecision(_ status: String?) -> Bool {
         guard let s = status else { return false }
         return s == "need_ask" || s == "need_confirm"
     }
 
-    // MARK: - request_id（M4 幂等键）
+    // MARK: - request_id (M4 idempotency key)
 
-    /// 客户端生成；重试同一任务复传 → server 去重（deduped:true）。
+    /// Client-generated; retries of the same task resend the same id so the server dedupes.
     static func genRequestId() -> String {
-        return "req-" + UUID().uuidString.lowercased()
+        "req-" + UUID().uuidString.lowercased()
     }
 
-    // MARK: - 回执四行解析（contract.RenderReceipt 的反向解析）
-    //
-    /// server 渲染恰好四行：动作/文件/结果/撤销。
-    /// 容错：行缺失 / 全半角冒号 / 多余行 / 前后空白 都不炸，按行首标签归位。
+    // MARK: - Receipt four-line parsing (inverse of contract.RenderReceipt)
+
+    /// The server renders exactly four lines: Action / File / Result / Undo.
+    /// Tolerant: missing lines, half/full-width colons, extra lines, surrounding whitespace —
+    /// never crashes; lines are bucketed by their leading label.
     static func parseReceipt(_ text: String?) -> Receipt {
         var out = Receipt()
         guard let text = text else { return out }
-        // 匹配行首标签：动作/文件/结果/撤销，后接全/半角冒号。
-        let pattern = #"^\s*(动作|文件|结果|撤销)\s*[:：]\s*(.*)$"#
+        // Match a leading label: Action/File/Result/Undo, followed by a half/full-width colon.
+        let pattern = #"^\s*(Action|File|Result|Undo)\s*[:：]\s*(.*)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return out }
         for raw in text.components(separatedBy: CharacterSet.newlines) {
             let ns = NSRange(raw.startIndex..., in: raw)
             guard let m = regex.firstMatch(in: raw, range: ns) else { continue }
-            // NSRange → Swift Range<String.Index>，再用 String 下标。
+            // NSRange -> Swift Range<String.Index>, then subscript the String.
             guard let labelRange = Range(m.range(at: 1), in: raw),
                   let valueRange = Range(m.range(at: 2), in: raw) else { continue }
             let label = String(raw[labelRange])
             let value = String(raw[valueRange]).trimmingCharacters(in: .whitespaces)
             switch label {
-            case "动作": out.action = value
-            case "文件": out.files = value
-            case "结果": out.result = value
-            case "撤销": out.undo = value
+            case "Action": out.action = value
+            case "File": out.files = value
+            case "Result": out.result = value
+            case "Undo": out.undo = value
             default: break
             }
         }
         return out
     }
 
-    // MARK: - 撤销行解析（回执卡第 4 行 → 撤销按钮）
-    //
+    // MARK: - Undo-line parsing (receipt line 4 -> undo button)
+
     /**
-     * 【伪代码逻辑层】（必写：撤销按钮显隐属裁决）
-     *   show = server.reversible === true  且  undo 行不含"不可撤销/不可逆/禁止回滚"。
-     *   backup：undo 行里提取 .bak 文件名（兼容 VHS_BACKUP_PATH: 前缀契约）。
-     *   异常：undo 为空 → show=false，backup=''（不可撤销，不给按钮）。
+     * Logic-layer contract:
+     *   show   = (reversible == true) AND undo line is not declared irreversible.
+     *   backup = extract the .bak filename from the undo line (tolerant of the VHS_BACKUP_PATH: prefix).
+     * Edge cases: empty undo -> show=false, backup="" (irreversible, no button).
      */
     static func extractUndo(_ receipt: Receipt, _ reversible: Bool?) -> UndoInfo {
         let undo = receipt.undo
-        let irreversible = undo.range(of: "不可撤销|不可逆|禁止回滚", options: .regularExpression) != nil
+        let irreversible = undo.range(of: "irreversible|cannot be undone|no rollback",
+                                       options: .regularExpression) != nil
         var info = UndoInfo()
         info.irreversible = irreversible
         info.show = (reversible == true) && !irreversible
-        // 提取 .bak 文件名（兼容 VHS_BACKUP_PATH: 前缀）
-        let bakPattern = #"(?:VHS_BACKUP_PATH\s*[:：]\s*)?([^\s，,]+\.bak)"#
+        // Extract the .bak filename (tolerant of the VHS_BACKUP_PATH: prefix).
+        let bakPattern = #"(?:VHS_BACKUP_PATH\s*[:：]\s*)?([^\s,]+\.bak)"#
         if let r = try? NSRegularExpression(pattern: bakPattern),
            let m = r.firstMatch(in: undo, range: NSRange(undo.startIndex..., in: undo)),
            let rr = Range(m.range(at: 1), in: undo) {
@@ -96,14 +102,14 @@ enum VSLogic {
         return info
     }
 
-    // MARK: - 意图关键词 → 轻标签（从 receipt 动作行压缩）
+    // MARK: - Intent keywords -> light badge (compressed from the receipt action line)
 
     private static let intentWords: [(NSRegularExpression, String)] = [
-        (try! NSRegularExpression(pattern: "NOTE|记一下|笔记", options: .caseInsensitive), "笔记"),
-        (try! NSRegularExpression(pattern: "EDIT|改文件|编辑|删除", options: .caseInsensitive), "改文件"),
-        (try! NSRegularExpression(pattern: "QUERY|查代码|查询|看看", options: .caseInsensitive), "查询"),
-        (try! NSRegularExpression(pattern: "COMMIT|提交|commit", options: .caseInsensitive), "提交"),
-        (try! NSRegularExpression(pattern: "DEPLOY|部署", options: .caseInsensitive), "部署")
+        (try! NSRegularExpression(pattern: "NOTE|note|jot", options: .caseInsensitive), "Note"),
+        (try! NSRegularExpression(pattern: "EDIT|edit|change|delete", options: .caseInsensitive), "Edit"),
+        (try! NSRegularExpression(pattern: "QUERY|query|lookup|search", options: .caseInsensitive), "Query"),
+        (try! NSRegularExpression(pattern: "COMMIT|commit", options: .caseInsensitive), "Commit"),
+        (try! NSRegularExpression(pattern: "DEPLOY|deploy|release", options: .caseInsensitive), "Deploy")
     ]
 
     static func intentBadge(_ actionText: String?) -> String {
@@ -127,23 +133,23 @@ enum VSLogic {
         }
     }
 
-    // MARK: - 轻标签压缩（意图/域/风险/状态）
-    //
+    // MARK: - Lightweight badge compression (intent / domain / risk / state)
+
     /**
-     * 【伪代码逻辑层】（必写：徽章从"状态/回执/归因"压缩，内部细节不放大）
-     *   输入 view = GET /v1/tasks/{id} 的响应（不含完整 Outcome，只有 receipt/attribution/reversible）。
-     *   输出 badges[] = 2~4 个小徽章：
-     *     state  ← status 直接映射（执行中/待回问/待确认/完成/已取消/已中断）
-     *     intent ← receipt.动作行关键词（笔记/改文件/查询/提交/部署）
-     *     domain ← receipt.文件行压缩：notes.md→笔记域；有真实对象路径→项目域；无→省略
-     *     risk   ← need_confirm→高风险·待放行；reversible→可逆；done 且 !reversible→不可逆
-     *   原则：绝不展示置信度分数/ASR 原文/纠正明细——只留用户需要的掌控感。
+     * Badges are compressed from state/receipt/attribution; internal detail is not amplified.
+     *   view = GET /v1/tasks/{id} response (no full Outcome, only receipt/attribution/reversible).
+     * Output badges[] = 2~4 small chips:
+     *   state  <- direct status mapping (Running / Needs Input / Needs Confirm / Done / Canceled / Interrupted)
+     *   intent <- keywords on the receipt Action line (Note / Edit / Query / Commit / Deploy)
+     *   domain <- receipt File line compressed: notes.md -> Notes domain; real object path -> Project domain; none -> omitted
+     *   risk   <- need_confirm -> High Risk; reversible -> Reversible; done && !reversible -> Irreversible
+     * Principle: never show confidence scores / ASR raw text / correction detail — only the sense of control the user needs.
      */
     static func compressBadges(_ view: TaskView) -> [Badge] {
         var badges: [Badge] = []
         let stateMap: [String: String] = [
-            "running": "执行中", "need_ask": "待回问", "need_confirm": "待确认",
-            "done": "完成", "canceled": "已取消", "interrupted": "已中断"
+            "running": "Running", "need_ask": "Needs Input", "need_confirm": "Needs Confirm",
+            "done": "Done", "canceled": "Canceled", "interrupted": "Interrupted"
         ]
         if let st = view.status, let label = stateMap[st] {
             badges.append(Badge(kind: "state", label: label, tone: tone(forStatus: st)))
@@ -153,47 +159,36 @@ enum VSLogic {
         if !it.isEmpty {
             badges.append(Badge(kind: "intent", label: it, tone: "blue"))
         }
-        if r.files.range(of: "notes\\.md|笔记", options: .regularExpression) != nil
-            || r.action.range(of: "笔记|NOTE", options: .regularExpression) != nil {
-            badges.append(Badge(kind: "domain", label: "笔记域", tone: "gray"))
+        if r.files.range(of: "notes?\\.md|note", options: .regularExpression) != nil
+            || r.action.range(of: "note|NOTE", options: .regularExpression) != nil {
+            badges.append(Badge(kind: "domain", label: "Notes", tone: "gray"))
         } else if !r.files.isEmpty && r.files != "—" {
-            badges.append(Badge(kind: "domain", label: "项目域", tone: "gray"))
+            badges.append(Badge(kind: "domain", label: "Project", tone: "gray"))
         }
         if view.status == "need_confirm" {
-            badges.append(Badge(kind: "risk", label: "高风险·待放行", tone: "red"))
+            badges.append(Badge(kind: "risk", label: "High Risk", tone: "red"))
         } else if view.reversible == true {
-            badges.append(Badge(kind: "risk", label: "可逆", tone: "green"))
+            badges.append(Badge(kind: "risk", label: "Reversible", tone: "green"))
         } else if view.status == "done" && view.reversible != true {
-            badges.append(Badge(kind: "risk", label: "不可逆", tone: "red"))
+            badges.append(Badge(kind: "risk", label: "Irreversible", tone: "red"))
         }
         return badges
     }
 
-    // MARK: - 一屏一个决策点（渲染路由）
-    //
-    /**
-     * 【伪代码逻辑层】（必写：决策点优先级，一次只渲染一个）
-     *   优先级 高→低：
-     *     1. need_confirm → confirm        红色确认条（answer:"执行"）
-     *     2. need_ask     → ask            候选按钮（点选 answer:option.id）
-     *     3. canceled/interrupted → error  系统错误条
-     *     4. done         → receipt        绿色回执卡（撤销按钮按 undo.show）
-     *     5. running      → running        执行卡滚动步骤
-     *     6. 其他/idle    → idle
-     *   原则：上一个 done 的回执卡作为历史气泡留在对话流里，底部不再叠加第二个决策控件。
-     */
+    // MARK: - One decision point per screen
+
     static func nextDecisionPoint(_ view: TaskView) -> DecisionPoint {
         switch view.status {
         case "need_confirm":
             return DecisionPoint(kind: .confirm,
-                                 question: view.question ?? "人工放行（不可逆）操作")
+                                 question: view.question ?? "Manual approval required (irreversible operation)")
         case "need_ask":
             return DecisionPoint(kind: .ask,
-                                 question: view.question ?? "你想让我做什么？",
+                                 question: view.question ?? "What would you like me to do?",
                                  options: view.options ?? [])
         case "canceled", "interrupted":
             let msg = view.error ?? (view.status == "interrupted"
-                ? "任务已中断，请重新提交" : "任务被取消")
+                ? "Task interrupted, please resubmit" : "Task canceled")
             return DecisionPoint(kind: .error, message: msg)
         case "done":
             let r = parseReceipt(view.receipt)
@@ -207,15 +202,8 @@ enum VSLogic {
         }
     }
 
-    // MARK: - 角色映射（镜像 server.roleForStatus）
-    //
-    /**
-     * 【伪代码逻辑层】（必写：阶段→角色裁决）
-     *   planner  = 分类/域裁决/风险分级/确认闸/回问（决策）→ need_ask/need_confirm
-     *   executor = 工具动作执行                              → running
-     *   verifier = 校验/归因/回执                            → done
-     *   其他/canceled/interrupted → 落回 planner。
-     */
+    // MARK: - Role mapping
+
     static func roleForStatus(_ status: String?) -> String {
         guard let s = status else { return "planner" }
         switch s {
@@ -226,16 +214,8 @@ enum VSLogic {
         }
     }
 
-    // MARK: - 执行卡高亮索引（P2，镜像 web advanceExec）
-    //
-    /**
-     * 【伪代码逻辑层】（必写：执行卡按状态/阶段推进的高亮裁决）
-     *   返回 (doneCount, activeIndex)：
-     *     doneCount  = 已完成（打 ✓）的行数；activeIndex = 当前高亮行（-1 = 无高亮）。
-     *   need_ask/need_confirm → 停在"确认闸"（第 4 行 index 3，此前 4 行打 ✓）。
-     *   done                  → 全部行打 ✓。
-     *   running               → (0,-1)：具体高亮由 SSE stage.step 事件驱动（见 advanceExec(toStage:)）。
-     */
+    // MARK: - Exec card progress by status (independent of the stage event)
+
     static func execProgress(forStatus status: String?) -> (doneCount: Int, activeIndex: Int) {
         switch status {
         case "need_ask", "need_confirm": return (4, -1)
@@ -244,111 +224,111 @@ enum VSLogic {
         }
     }
 
-    /// stage.step 名 → 执行卡行索引（找不到返回 nil）。
+    /// stage.step name -> exec-card row index (nil when not found).
     static func execIndex(ofStep step: String) -> Int? {
         execStages.firstIndex(of: step)
     }
 
-    // MARK: - 语音一轮一清（P1）
-    //
+    // MARK: - Voice one-turn-one-clear (P1)
+
     /**
-     * 【伪代码逻辑层】（必写：一轮一清）
-     *   final 语音结果 = 整段替换输入框（绝不与旧文本拼接）；
-     *   send 后清空识别缓冲，下一轮从空白开始。
+     * Final ASR result replaces the input box wholesale (never concatenated with old text);
+     * after send the recognition buffer is cleared and the next turn starts blank.
      */
     static func voiceReplace(previous: String, final: String) -> String { final }
 
-    // MARK: - 打断状态机：说"停" → 红色系统条
-    //
+    // MARK: - Interrupt state machine: say "stop" -> red system bar
+
     /**
-     * 【伪代码逻辑层】（必写：停止→已生效/未执行/可继续或撤销）
-     *   输入 view = 当前任务视图（可能 running/need_ask/need_confirm/done）。
-     *   控制流：
-     *     hasEffect = 已有 receipt 且动作/文件非空（done 前已落盘的执行结果）。
-     *     active   = hasEffect ? ['已生效：<action>（<files>）']
-     *                          : ['已生效：尚未产生文件变更']
-     *     blocked  = ['未执行：后续阶段已中止']
-     *     actions  = ['继续'] + (undo.show ? ['撤销'] : [])   // 撤销在最前
-     *   异常：view 为空 → active='没有进行中的任务'，actions=[]。
-     *   注意：系统条只是 UI 呈现；真正的停止由 AppModel 调 POST /v1/tasks/{id}/cancel 完成。
+     * Input view = current task view (may be running/need_ask/need_confirm/done).
+     *   hasEffect = a receipt already exists AND action/files are non-empty (results landed before done).
+     *   active   = hasEffect ? ['Applied: <action> (<files>)']
+     *                        : ['Applied: no file changes yet']
+     *   blocked  = ['Not executed: later stages aborted']
+     *   actions  = ['Continue'] + (undo.show ? ['Undo'] : [])   // Undo first
+     * Edge: view empty -> active='No task in progress', actions=[].
+     * Note: the system bar is only UI; the real stop is AppModel calling POST /v1/tasks/{id}/cancel.
      */
     static func interruptSystemBar(_ view: TaskView?) -> SystemBarInfo {
         guard let view = view else {
-            return SystemBarInfo(title: "停止", active: ["没有进行中的任务"],
+            return SystemBarInfo(title: "Stop", active: ["No task in progress"],
                                  blocked: [], actions: [], closable: true)
         }
-        // 完全空视图：无状态且无回执
+        // Fully empty view: no status and no receipt.
         if view.status == nil && view.receipt == nil {
-            return SystemBarInfo(title: "停止", active: ["没有进行中的任务"],
+            return SystemBarInfo(title: "Stop", active: ["No task in progress"],
                                  blocked: [], actions: [], closable: true)
         }
         let r = parseReceipt(view.receipt)
         let hasEffect = (view.receipt != nil) && (!r.action.isEmpty || !r.files.isEmpty)
         let active: [String]
         if hasEffect {
-            let f = r.files.isEmpty || r.files == "—" ? "" : "（\(r.files)）"
-            active = ["已生效：\(r.action.isEmpty ? "执行已落盘" : r.action)\(f)"]
+            let f = r.files.isEmpty || r.files == "—" ? "" : " (\(r.files))"
+            active = ["Applied: \(r.action.isEmpty ? "Changes applied" : r.action)\(f)"]
         } else {
-            active = ["已生效：尚未产生文件变更"]
+            active = ["Applied: no file changes yet"]
         }
-        let blocked = ["未执行：后续阶段已中止"]
-        var actions = ["继续"]
+        let blocked = ["Not executed: later stages aborted"]
+        var actions = ["Continue"]
         let und = extractUndo(r, view.reversible)
-        if und.show { actions.insert("撤销", at: 0) }
-        return SystemBarInfo(title: "已按下停止", active: active,
+        if und.show { actions.insert("Undo", at: 0) }
+        return SystemBarInfo(title: "Stop pressed", active: active,
                              blocked: blocked, actions: actions, closable: true)
     }
 
-    // MARK: - 打断触发词判定（说"停"）
+    // MARK: - Interrupt trigger phrase detection (say "stop")
 
-    /// 用户文本命中"停/停止/停下/stop"（大小写不敏感，trim 后全等）。
+    /// The user's trimmed, lowercased text exactly matches "stop/halt/...".
     static func isInterruptPhrase(_ text: String) -> Bool {
         let t = text.trimmingCharacters(in: .whitespaces).lowercased()
-        return ["停", "停止", "停下", "stop"].contains(t)
+        return ["stop", "halt", "freeze", "hold on", "cut it"].contains(t)
     }
 
-    // MARK: - v2.1 口答词表（I06 确认口答 / I17 撤销口答 / 先进理念6 噪声过滤 / I13 分险级）
+    // MARK: - v2.1 spoken-answer vocabulary (I06 confirm / I17 undo / noise filter / risk tier)
 
-    /// 极短噪声词：无意义哼哈（嗯/哦/好…）不提交、不生成气泡。
-    /// 注意：确认口答在 AppModel.sendVoice 里先于本判断执行，"好/是/行"在决策点场景会被口答消费。
+    /// Very short filler words: meaningless hums (um/uh/oh...) are not submitted and produce no bubble.
+    /// Note: confirm answers are consumed by AppModel.sendVoice before this check; "yes/ok" at a
+    /// decision point is consumed as a spoken answer.
     static func isNoiseWord(_ t: String) -> Bool {
         let s = t.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.count <= 1 { return true }
-        let noise: Set<String> = ["嗯", "嗯嗯", "哦", "哦哦", "啊", "好的", "好", "OK", "ok", "Ok", "行", "哈", "诶", "哎", "呀", "对", "是", "明白", "知道了"]
-        return noise.contains(s)
+        let noise: Set<String> = ["um", "umm", "uh", "oh", "ohh", "ah", "ok", "okay", "hmm", "hah", "yeah", "yep", "right", "got it", "understood"]
+        return noise.contains(s.lowercased())
     }
 
-    /// 确认口答肯定词（need_confirm 场景）。
+    /// Affirmative spoken answers (need_confirm scenario).
     static func isAffirmPhrase(_ t: String) -> Bool {
-        let s = t.trimmingCharacters(in: .whitespacesAndNewlines)
-        let exact: Set<String> = ["执行", "确认", "可以", "好", "好的", "做", "做吧", "继续", "是", "对", "同意", "行", "就这么办", "就做"]
-        return exact.contains(s) || s.hasPrefix("执行")
+        let s = t.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let exact: Set<String> = ["execute", "confirm", "yes", "ok", "okay", "do it", "proceed", "continue", "approved", "affirmative", "go ahead", "do it now"]
+        return exact.contains(s) || s.hasPrefix("execute")
     }
 
-    /// 确认口答否定词（need_confirm 场景）。
+    /// Negative spoken answers (need_confirm scenario).
     static func isNegativePhrase(_ t: String) -> Bool {
-        let s = t.trimmingCharacters(in: .whitespacesAndNewlines)
-        let exact: Set<String> = ["取消", "拒绝", "不要", "不做", "不执行", "停", "停止", "算了", "不用", "别"]
-        return exact.contains(s) || s.hasPrefix("不")
+        let s = t.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let exact: Set<String> = ["cancel", "reject", "no", "don't", "stop", "never mind", "skip", "hold"]
+        return exact.contains(s) || s.hasPrefix("don't")
     }
 
-    /// 撤销口答词（I17 / 先进理念2 语音撤销链）："撤销""撤销刚才那个""撤销上一条"。
+    /// Undo spoken phrase (I17 voice undo chain): "undo" / "undo that" / "undo the last one".
     static func isUndoPhrase(_ t: String) -> Bool {
-        let s = t.trimmingCharacters(in: .whitespacesAndNewlines)
-        return s == "撤销" || s.contains("撤销")
+        let s = t.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return s == "undo" || s.contains("undo")
     }
 
-    /// 高风险动作词（I13 分险级：提交/推送/合并/部署/删除等，口答无效、强制按钮确认）。
+    /// High-risk action words (I13 risk tier: commit/push/merge/deploy/delete... spoken answers do
+    /// not apply; a button confirmation is forced).
     static func isHighRiskAction(_ probe: String) -> Bool {
         let a = probe.lowercased()
-        let highRisk: [String] = ["提交", "推送", "push", "commit", "merge", "合并", "部署", "发布", "删除", "清空", "覆盖", "drop", "迁移", "rm"]
+        let highRisk: [String] = ["commit", "push", "merge", "deploy", "release", "delete", "clear", "overwrite", "drop", "migrate", "rm"]
         return highRisk.contains { a.contains($0) }
     }
 
-    /// V6.2 自动命名规则：取首条用户内容前 12 字 + "…"（本地兜底；云端可用后升级 AI 命名）。
+    /// V6.2 auto-naming: take the first 12 characters of the first user message + "…"
+    /// (local fallback; upgraded to AI naming once cloud support lands).
     static func autoTitle(from text: String) -> String {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return "新会话" }
+        guard !t.isEmpty else { return "New Chat" }
         let cleaned = t.replacingOccurrences(of: "\n", with: " ")
         let maxLen = 12
         if cleaned.count <= maxLen { return cleaned }

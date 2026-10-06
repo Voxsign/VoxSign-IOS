@@ -2,10 +2,10 @@
 //  ClassifySheetView.swift
 //  VoxSign
 //
-//  V6.3 归类面板（会话左滑「归类」弹出，先聊后归）：
-//  - 顶部分段：角色 Role / 域 Domain
-//  - 中部：已有容器列表，点选 → 会话归入
-//  - 底部：输入新容器名 +「新建并归入」
+//  V6.3 filing panel (opens on session left-swipe "File"; talk-then-file):
+//  - Top segment: Role / Domain
+//  - Middle: list of existing containers; tap to file the session into it
+//  - Bottom: enter a new container name + "Create and file"
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import SwiftUI
 struct ClassifySheetView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    /// 待归类的会话。
+    /// The session to file.
     let sessionID: String
     @State private var kind: ContainerKind = .role
     @State private var newName: String = ""
@@ -23,10 +23,10 @@ struct ClassifySheetView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // 分段：角色 / 域
-                Picker("容器类型", selection: $kind) {
-                    Text("角色 Role").tag(ContainerKind.role)
-                    Text("域 Domain").tag(ContainerKind.domain)
+                // Segments: Role / Domain
+                Picker("Container type", selection: $kind) {
+                    Text("Role").tag(ContainerKind.role)
+                    Text("Domain").tag(ContainerKind.domain)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -35,7 +35,7 @@ struct ClassifySheetView: View {
                 List {
                     Section {
                         if store.containers(of: kind).isEmpty {
-                            Text(kind == .role ? "还没有角色，先新建一个" : "还没有域，先新建一个")
+                            Text(kind == .role ? NSLocalizedString("No roles yet — create one", comment: "") : NSLocalizedString("No domains yet — create one", comment: ""))
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
                         } else {
@@ -52,7 +52,7 @@ struct ClassifySheetView: View {
                                             Text(c.name)
                                                 .font(.system(size: 15, weight: .medium))
                                                 .foregroundColor(.primary)
-                                            Text("会话 \(store.sessions.filter { $0.containerID == c.id }.count) 个")
+                                            Text(NSLocalizedString("\(store.sessions.filter { $0.containerID == c.id }.count) sessions", comment: ""))
                                                 .font(.system(size: 11))
                                                 .foregroundColor(.secondary)
                                         }
@@ -65,14 +65,14 @@ struct ClassifySheetView: View {
                             }
                         }
                     } header: {
-                        Text(kind == .role ? "归入角色" : "归入域")
+                        Text(kind == .role ? NSLocalizedString("File into role", comment: "") : NSLocalizedString("File into domain", comment: ""))
                     }
                 }
                 .listStyle(.insetGrouped)
 
-                // 底部：新建容器并归入
+                // Bottom: create a container and file into it
                 HStack(spacing: 10) {
-                    TextField(kind == .role ? "新角色名称…" : "新域名…", text: $newName)
+                    TextField(kind == .role ? NSLocalizedString("New role name…", comment: "") : NSLocalizedString("New domain name…", comment: ""), text: $newName)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 14))
                     Button {
@@ -80,7 +80,7 @@ struct ClassifySheetView: View {
                         newName = ""
                         dismiss()
                     } label: {
-                        Text("新建并归入")
+                        Text(NSLocalizedString("Create and file", comment: ""))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)
@@ -94,7 +94,7 @@ struct ClassifySheetView: View {
                 .padding(.vertical, 12)
                 .background(Color(.secondarySystemBackground))
             }
-            .navigationTitle("归类会话")
+            .navigationTitle(NSLocalizedString("File session", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

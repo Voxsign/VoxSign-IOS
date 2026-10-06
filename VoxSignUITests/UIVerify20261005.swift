@@ -1,10 +1,10 @@
 //
-//  UIVerify20261005.swift — 临时验收辅助测试（验证包执行者新增，非产品代码）
-//  目的：在模拟器上驱动导航到各验收区，逐区截图（XCTAttachment keepAlways），
-//        并实测 添加资料 / 多会话 / …菜单复制 / 会话切换删除。
-//  跑法：
-//   TEST_TARGET_NAME=VoxSign xcodebuild test -project ios/VoxSign.xcodeproj \
-//     -scheme VoxSign -destination 'id=EC6F72A0-C06B-45A8-89AC-5F9A8D3A9F90' \
+//  UIVerify20261005.swift — ad-hoc acceptance helper test (added by the package runner, not product code).
+//  Purpose: drive navigation to each acceptance region on the simulator, screenshot region by region (XCTAttachment keepAlways),
+//        and exercise add-resource / multi-session / …-menu copy / session switch & delete.
+//  Run:
+//   TEST_TARGET_NAME=VoxSign xcodebuild test -project VoxSign.xcodeproj \
+//     -scheme VoxSign -destination 'id=<simulator-id>' \
 //     -derivedDataPath /tmp/vhs24-test-dd -resultBundlePath /tmp/vhs24-ui.xcresult \
 //     -only-testing:VoxSignUITests/UIVerify20261005/testVerifyAllRegions
 //
@@ -20,7 +20,7 @@ final class UIVerify20261005: XCTestCase {
         app.launch()
     }
 
-    /// 截图并 keepAlways，后续用 xcresulttool export attachments 导出。
+    /// Screenshot with keepAlways; export later via xcresulttool.
     func shot(_ name: String) {
         let att = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         att.name = name
@@ -31,68 +31,68 @@ final class UIVerify20261005: XCTestCase {
     func testVerifyAllRegions() {
         let input = app.textFields["vhs.input"]
         guard input.waitForExistence(timeout: 25) else {
-            XCTFail("vhs.input 未出现")
+            XCTFail("vhs.input did not appear")
             return
         }
         sleep(1)
-        // 区1：顶栏（状态点+标题+左右入口）+ 极简输入条三件套 + 空态欢迎语
+        // Region 1: top bar (status dot + title + left/right entries) + minimal input bar trio + empty-state greeting
         shot("01-home-empty")
 
-        // —— 配置自建服务器（设置 → 自建 → 添加服务器 → IP）——
+        // -- Configure a self-hosted server (Settings -> Self-hosted -> Add server -> IP) --
         app.buttons["vhs.more"].tap()
-        _ = app.buttons["设置"].waitForExistence(timeout: 5)
-        app.buttons["设置"].tap()
+        _ = app.buttons["Settings"].waitForExistence(timeout: 5)
+        app.buttons["Settings"].tap()
         sleep(1)
-        // 区2：设置页（云道默认态）
+        // Region 2: Settings (cloud default state)
         shot("02-settings-cloud")
 
-        _ = app.buttons["自建"].waitForExistence(timeout: 5)
-        app.buttons["自建"].tap()
+        _ = app.buttons["Self-hosted"].waitForExistence(timeout: 5)
+        app.buttons["Self-hosted"].tap()
         sleep(1)
-        _ = app.buttons["添加服务器"].waitForExistence(timeout: 5)
-        app.buttons["添加服务器"].tap()
+        _ = app.buttons["Add server"].waitForExistence(timeout: 5)
+        app.buttons["Add server"].tap()
         sleep(1)
         let ipBtn = app.buttons.containing(
-            NSPredicate(format: "label CONTAINS 'IP 地址'")
+            NSPredicate(format: "label CONTAINS 'IP address'")
         ).firstMatch
         if ipBtn.waitForExistence(timeout: 5) { ipBtn.tap() }
         sleep(1)
 
-        let nameF = app.textFields["名称（如：办公室 Mac）"]
+        let nameF = app.textFields["Name (e.g. Office Mac)"]
         let baseF = app.textFields["http://192.168.x.x:8897"]
-        let tokF = app.secureTextFields["Bearer Token（可选）"]
+        let tokF = app.secureTextFields["Bearer Token (optional)"]
         if nameF.waitForExistence(timeout: 5) {
-            nameF.tap(); nameF.typeText("本机Mac")
+            nameF.tap(); nameF.typeText("Local Mac")
             baseF.tap(); baseF.typeText("http://127.0.0.1:8897")
             tokF.tap(); tokF.typeText("m7-token")
         }
-        let save = app.buttons["保存并检测连接"]
+        let save = app.buttons["Save and check connection"]
         if save.waitForExistence(timeout: 5) { save.tap() }
-        // 等服务器行出现（连通性检测通过才保存）
-        let row = app.staticTexts["本机Mac"]
+        // Wait for the server row (saved only after the connectivity check passes)
+        let row = app.staticTexts["Local Mac"]
         _ = row.waitForExistence(timeout: 15)
         sleep(1)
-        // 区3：设置页（自建已连接态）
+        // Region 3: Settings (self-hosted connected state)
         shot("03-settings-selfhosted")
-        // 完成 → 回聊天
-        app.buttons["完成"].firstMatch.tap()
+        // Done -> back to chat
+        app.buttons["Done"].firstMatch.tap()
         sleep(1)
 
-        // —— 发一条消息，等 AI 回执 ——
+        // -- Send a message and wait for the AI receipt --
         input.tap()
         input.typeText("verify note 20261005")
         if app.buttons["vhs.send"].waitForExistence(timeout: 3) {
             app.buttons["vhs.send"].tap()
         }
         let done = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS '已完成' OR label CONTAINS '撤销' OR label CONTAINS '没'")
+            NSPredicate(format: "label CONTAINS 'Done' OR label CONTAINS 'Undo' OR label CONTAINS 'No'")
         ).firstMatch
         _ = done.waitForExistence(timeout: 45)
         sleep(1)
-        // 区4：AI 消息信息行（消耗·时间·…，无🔔🔊）+ 回执卡片 + 用户气泡
+        // Region 4: AI message info row (usage · time · …, no bell/speaker) + receipt card + user bubble
         shot("04-chat-receipt")
 
-        // —— AI 气泡「…」菜单：定位窗口下半区的小尺寸 ellipsis 按钮 ——
+        // -- AI bubble "…" menu: locate the small ellipsis button in the lower half of the window --
         let win = app.windows.firstMatch.frame
         var bubbleEllipsis: XCUIElement?
         for b in app.buttons.allElementsBoundByIndex {
@@ -105,50 +105,50 @@ final class UIVerify20261005: XCTestCase {
         }
         bubbleEllipsis?.tap()
         sleep(1)
-        // 区5：AI 消息操作菜单（复制/朗读/分享）
+        // Region 5: AI message action menu (Copy / Speak / Share)
         shot("05-ai-bubble-menu")
-        if app.buttons["复制"].waitForExistence(timeout: 3) {
-            app.buttons["复制"].tap()
+        if app.buttons["Copy"].waitForExistence(timeout: 3) {
+            app.buttons["Copy"].tap()
         }
         sleep(1)
 
-        // —— 添加资料面板：＋ → 从剪贴板读取（即刚复制的 AI 文本）→ 添加 ——
+        // -- Add-resource panel: ＋ -> Read from clipboard (the AI text just copied) -> Add --
         app.buttons["vhs.attach"].tap()
         sleep(1)
-        if app.buttons["从剪贴板读取"].waitForExistence(timeout: 5) {
-            app.buttons["从剪贴板读取"].tap()
+        if app.buttons["Read from clipboard"].waitForExistence(timeout: 5) {
+            app.buttons["Read from clipboard"].tap()
             sleep(1)
         }
-        // 区6：添加资料面板（四入口 + 剪贴板已读入文本）
+        // Region 6: add-resource panel (four entries + text read from clipboard)
         shot("06-attach-panel")
-        let addBtns = app.buttons.matching(NSPredicate(format: "label == '添加'"))
+        let addBtns = app.buttons.matching(NSPredicate(format: "label == 'Add'"))
         if addBtns.firstMatch.waitForExistence(timeout: 3) {
             addBtns.firstMatch.tap()
         }
         sleep(1)
-        // 回聊天：发带附件的消息 → 用户气泡出现附件 chip
+        // Back to chat: send the message with the attachment -> the user bubble shows an attachment chip
         input.tap()
         input.typeText("with attachment")
         if app.buttons["vhs.send"].waitForExistence(timeout: 3) {
             app.buttons["vhs.send"].tap()
         }
         sleep(3)
-        // 区7：用户气泡附件 chip
+        // Region 7: user-bubble attachment chip
         shot("07-user-bubble-chip")
 
-        // —— 会话列表 → 新建会话 ——
+        // -- Session list -> new session --
         app.buttons["vhs.sessions"].tap()
         sleep(1)
-        // 区8：会话列表（≥1 条历史）
+        // Region 8: session list (>= 1 history item)
         shot("08-session-list")
         if app.buttons["vhs.session.new"].waitForExistence(timeout: 5) {
             app.buttons["vhs.session.new"].tap()
         }
         sleep(1)
-        // 区9：新会话空态（一行欢迎语）
+        // Region 9: new-session empty state (one greeting line)
         shot("09-new-session-empty")
 
-        // —— 再进列表：删掉新建的空会话（滑动删除），再切回旧会话 ——
+        // -- Open the list again: swipe-delete the new empty session, then switch back to the old one --
         app.buttons["vhs.sessions"].tap()
         sleep(1)
         let cells = app.cells
@@ -156,16 +156,16 @@ final class UIVerify20261005: XCTestCase {
         if cells.count >= 2 {
             cells.firstMatch.swipeLeft()
             sleep(1)
-            let del = app.buttons["删除"]
+            let del = app.buttons["Delete"]
             if del.waitForExistence(timeout: 3) { del.tap() }
             sleep(1)
         }
-        // 点剩下的旧会话行 → 切回
+        // Tap the remaining old-session row -> switch back
         if cells.firstMatch.waitForExistence(timeout: 3) {
             cells.firstMatch.tap()
         }
         sleep(2)
-        // 区10：切回旧会话（历史气泡恢复显示）
+        // Region 10: switched back to the old session (history bubbles restored)
         shot("10-switch-back")
     }
 }

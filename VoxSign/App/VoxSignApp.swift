@@ -2,7 +2,7 @@
 //  VoxSignApp.swift
 //  VoxSign
 //
-//  App 入口。
+//  App entry point.
 //
 
 import SwiftUI
@@ -27,10 +27,10 @@ struct VoxSignApp: App {
                     #if canImport(Speech)
                     speech.requestAuthorization()
                     #endif
-                    // T1 后台能力：请求通知权限 + 启动时补投离线队列。
+                    // Background capability: request notification permission and flush the offline queue on launch.
                     NotificationService.shared.requestAuthorization()
                     Task { await model.flushQueue() }
-                    // T2 连接感知：启动即探测 server 可达性（顶部胶囊立即亮起）。
+                    // Connectivity probe on launch (the top capsule lights up immediately).
                     ConnectivityService.shared.start()
                 }
         }

@@ -2,36 +2,36 @@
 //  MessageViews.swift
 //  VoxSign
 //
-//  对话流渲染：用户右蓝气泡（语音带声波）、Harness 左白气泡、轻标签、三点处理中、执行卡、回执卡。
-//  纯视图，无判断逻辑（判断在 VSLogic）。
+//  Chat-flow rendering: user right blue bubble (waveform for voice), harness left white bubble, light labels,
+//  typing dots, exec card, receipt card. Pure views, no decision logic (decisions live in VSLogic).
 //
 
 import SwiftUI
 
-// MARK: - 配色（豆包视觉：主蓝 #3370FF → 紫 #8B5CF6 渐变、白底浅灰会话、大圆角）
+// MARK: - Colors (Doubao visual: primary blue #3370FF -> purple #8B5CF6 gradient, white bg light-gray conversation, large radii)
 
 enum VSColor {
-    /// 豆包主蓝 #3370FF
+    /// Doubao primary blue #3370FF
     static let blue = Color(red: 0.20, green: 0.44, blue: 1.0)
-    /// 豆包渐变紫 #8B5CF6
+    /// Doubao gradient purple #8B5CF6
     static let purple = Color(red: 0.545, green: 0.36, blue: 0.965)
-    /// 会话背景（浅灰，豆包式）
+    /// Conversation background (light gray, Doubao-style)
     static let bg = Color(red: 0.949, green: 0.953, blue: 0.965)
     static let harnessBubble = Color.white
-    /// 卡片级阴影（App Store 精致度：柔和低透明度，不抢内容）
+    /// Card-level shadow (App Store polish: soft, low opacity, not distracting)
     static let shadow = Color.black.opacity(0.06)
-    /// UI v3 豆包式 AI 气泡阴影：刻意压到几乎看不见（设计稿：opacity 0.045 / radius 0.75）。
+    /// UI v3 Doubao-style AI bubble shadow: deliberately almost invisible (design: opacity 0.045 / radius 0.75).
     static let shadowSoft = Color.black.opacity(0.045)
-    /// 用户气泡高光（顶部左上更亮，增加立体感）
+    /// User bubble highlight (brighter top-leading for depth)
     static var userBubbleGradientHigh: LinearGradient {
         LinearGradient(colors: [Color(red: 0.32, green: 0.55, blue: 1.0), purple],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
-    /// 品牌渐变（标题/按钮统一用）
+    /// Brand gradient (shared by titles/buttons)
     static var brandGradient: LinearGradient {
         LinearGradient(colors: [blue, purple], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
-    /// UI v3 用户气泡：豆包同款 135° 蓝紫渐变 #4E7CFF → #8E6BFF（仅用户气泡与语音按钮使用）。
+    /// UI v3 user bubble: Doubao's 135° blue-purple gradient #4E7CFF -> #8E6BFF (used only by user bubbles and the voice button).
     static var userBubbleGradient: LinearGradient {
         LinearGradient(colors: [Color(red: 0.306, green: 0.486, blue: 1.0),
                                 Color(red: 0.557, green: 0.42, blue: 1.0)],
@@ -42,25 +42,25 @@ enum VSColor {
     static let confirmRed = Color(red: 0.97, green: 0.90, blue: 0.90)
 }
 
-// MARK: - 品牌常量（V4 §0）
+// MARK: - Brand constants (V4 §0)
 
-/// V4 豆包式 UI 共享设计令牌：发件人标注。
-/// 定义权归 MessageViews 执行者；RootView 顶栏只引用 `VSBrand.agentLabel`，不得重复定义。
+/// V4 Doubao-style UI shared design token: sender label.
+/// Owned by the MessageViews author; the RootView top bar only references `VSBrand.agentLabel` and must not redefine it.
 enum VSBrand {
     static let agentLabel = "VoxSign·metasystem"
 }
 
-/// V4 §3c：用户语音气泡时长文案纯函数。
-/// secs >= 60 → "共用时X分X秒"；否则 → "共用时X秒"。
+/// V4 §3c: user voice-bubble duration caption as a pure function.
+/// secs >= 60 -> "Total Xm Xs"; otherwise -> "Total Xs".
 func voiceDurationCaption(_ secs: Int) -> String {
     if secs >= 60 {
-        return "共用时\(secs / 60)分\(secs % 60)秒"
+        return String(format: NSLocalizedString("Total %d min %d s", comment: ""), secs / 60, secs % 60)
     } else {
-        return "共用时\(secs)秒"
+        return String(format: NSLocalizedString("Total %d s", comment: ""), secs)
     }
 }
 
-// MARK: - 徽章
+// MARK: - Badges
 
 struct BadgeView: View {
     let badge: Badge
@@ -84,7 +84,7 @@ struct BadgeView: View {
     }
 }
 
-// MARK: - 气泡
+// MARK: - Bubbles
 
 struct UserBubbleView: View {
     let bubble: Bubble
@@ -102,15 +102,15 @@ struct UserBubbleView: View {
                 HStack(alignment: .center, spacing: 6) {
                     if bubble.fromVoice {
                         WaveView()
-                            // UI v3：录音态声波为白色；完成态保持白色细条（豆包同款）。
+                            // UI v3: recording waveform is white; completed state keeps thin white bars (Doubao-style).
                             .opacity(0.9)
                     }
                     Text(bubble.text)
-                        // V4 §3d：消息气泡文本统一 16pt（豆包消息字号）。
+                        // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
                         .font(.system(size: 16))
                         .foregroundColor(.white)
                         .padding(.horizontal, 12).padding(.vertical, 8)
-                    // UI v3：语音消息时长（豆包同款 "3″" 小字）。
+                    // UI v3: voice message duration (Doubao-style small "3s").
                     if let secs = bubble.voiceSeconds {
                         Text("\(secs)″")
                             .font(.system(size: 12, weight: .medium))
@@ -123,7 +123,7 @@ struct UserBubbleView: View {
                                                   bottomTrailingRadius: 4, topTrailingRadius: 18))
                 .shadow(color: VSColor.shadow, radius: 6, x: 0, y: 2)
 
-                // 附件 chips：灰底小标签，不喧宾夺主；图片类如有 localPath 显示 40×40 缩略图。
+                // Attachment chips: light-gray small tags, not overpowering; image attachments show a 40x40 thumbnail when localPath exists.
                 if !bubble.attachments.isEmpty {
                     VStack(alignment: .trailing, spacing: 4) {
                         ForEach(bubble.attachments) { att in
@@ -132,13 +132,13 @@ struct UserBubbleView: View {
                     }
                 }
 
-                // V4 §3c：气泡下方右对齐元信息——HH:mm；语音消息追加 "· 共用时X分X秒"。
+                // V4 §3c: right-aligned metadata below the bubble — HH:mm; voice messages append "· Total Xm Xs".
                 metadataRow
             }
         }
     }
 
-    /// V6.5 用户气泡下方元信息：只留时间（去掉「共用时X秒」——没营养，保持简洁）。
+    /// V6.5 metadata under the user bubble: time only (dropped "Total Xs" — low value, keep it clean).
     private var metadataRow: some View {
         HStack(spacing: 4) {
             Spacer()
@@ -194,19 +194,19 @@ struct HarnessBubbleView: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                // V6.5 去掉「VoxSign·metasystem」发件人标注（无营养信息，保持简洁）。
+                // V6.5 dropped the "VoxSign·metasystem" sender label (low-value, keep it clean).
                 Text(bubble.text)
-                    // V4 §3d：消息气泡文本统一 16pt（豆包消息字号）。
+                    // V4 §3d: message bubble text is uniformly 16pt (Doubao message size).
                     .font(.system(size: 16))
                     .foregroundColor(.black)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(VSColor.harnessBubble)
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 4,
                                                       bottomTrailingRadius: 18, topTrailingRadius: 18))
-                    // UI v3：AI 气泡阴影压到几乎看不见（豆包式）。
+                    // UI v3: AI bubble shadow pressed to nearly invisible (Doubao-style).
                     .shadow(color: VSColor.shadowSoft, radius: 0.75, x: 0, y: 1)
 
-                // 轻量信息行：消耗（服务端不回传则整行隐藏）· 时间 + …菜单（无朗读/喇叭主按钮，不常用收进菜单）。
+                // Lightweight info row: cost (hidden entirely if the server omits it) · time + … menu (no main speaker button; infrequent, tucked into the menu).
                 infoRow
             }
             Spacer()
@@ -224,12 +224,12 @@ struct HarnessBubbleView: View {
                 Button {
                     UIPasteboard.general.string = bubble.text
                 } label: {
-                    Label("复制", systemImage: "doc.on.doc")
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 Button {
                     VoiceOutputService.shared.speak(bubble.text)
                 } label: {
-                    Label("朗读", systemImage: "waveform")
+                    Label("Speak", systemImage: "waveform")
                 }
                 ShareLink(item: bubble.text)
             } label: {
@@ -247,9 +247,9 @@ struct HarnessBubbleView: View {
     }
 }
 
-/// 声波动画（语音输入指示）。波形高度 = 实时录音振幅(meterLevel) + 轻微相位动画，
-/// 豆包式"按住有反应"：说话越响波形越高。
-/// 默认 3 根小条（顶部状态条用）；录音态满底波形传 barCount: 18 / barWidth: 5 / barMaxHeight: 64。
+/// Waveform animation (voice-input indicator). Bar height = live recording amplitude (meterLevel) + light phase animation,
+/// Doubao-style "responds on hold": the louder you speak, the taller the bars.
+/// Default 3 small bars (for the top status strip); the full-bleed recording waveform passes barCount: 18 / barWidth: 5 / barMaxHeight: 64.
 struct WaveView: View {
     var meterLevel: Float = 0.5
     var barCount: Int = 3
@@ -264,7 +264,7 @@ struct WaveView: View {
             HStack(spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { i in
                     let phase = sin(t * 5 + Double(i) * 0.9)
-                    // 高度 = 静息底 + 相位脉动 + 音量驱动；默认参数下与原 3 根行为一致（≈17pt）
+                    // Height = resting base + phase pulse + volume drive; with defaults it matches the original 3-bar behavior (~17pt)
                     let h = min(barMaxHeight, barMaxHeight * 0.22
                                 + max(0, phase) * barMaxHeight * 0.14
                                 + lvl * barMaxHeight * 0.5)
@@ -278,10 +278,10 @@ struct WaveView: View {
     }
 }
 
-/// 三点处理中 + 动态文案（I04 思考态 / I18 长任务升级文案）。
-/// 用 TimelineView 驱动，避免依赖 @State 宏。
+/// Typing dots + dynamic text (I04 thinking state / I18 long-task escalation text).
+/// Driven by TimelineView to avoid depending on @State macros.
 struct TypingView: View {
-    var text: String = "正在思考…"
+    var text: String = NSLocalizedString("Thinking…", comment: "")
 
     var body: some View {
         HStack(spacing: 10) {
@@ -307,13 +307,13 @@ struct TypingView: View {
     }
 }
 
-// MARK: - 执行卡（SSE stage 事件驱动滚动阶段行）
+// MARK: - Exec card (SSE stage events drive the rolling stage rows)
 
 struct ExecCardView: View {
     let state: ExecCardState
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("正在处理…")
+            Text(NSLocalizedString("Processing…", comment: ""))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.gray)
             ForEach(state.stages) { stage in
@@ -335,7 +335,7 @@ struct ExecCardView: View {
     }
 }
 
-// MARK: - 回执 → 人话气泡（v2.1：I01 人话回复 / I12 动作+对象 / I07+I17 撤销小字 44pt）
+// MARK: - Receipt -> human-readable bubble (v2.1: I01 human reply / I12 action+object / I07+I17 small undo text 44pt)
 
 struct ReceiptCardView: View {
     let receipt: Receipt
@@ -345,16 +345,16 @@ struct ReceiptCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // V6.5 去掉回执卡上方「VoxSign·metasystem」发件人小字（无营养信息）。
+            // V6.5 dropped the small "VoxSign·metasystem" sender label above the receipt card (low-value).
 
             VStack(alignment: .leading, spacing: 8) {
-                // 内容文本（后台人话回复）——V6.4 去掉「✅ 已完成 · X秒」状态行（无营养信息，保持简洁）。
+                // Content text (backend human reply) — V6.4 dropped the "✅ Done · Xs" status line (low-value, keep it clean).
 
                 Text(receipt.result)
                     .font(.system(size: 14))
                     .foregroundColor(.black)
 
-                // 图片回执（闭环验收场景）：后台截图回执含 "/screenshots/<file>.png" → 直接渲染图片。
+                // Image receipt (closed-loop acceptance): a backend screenshot receipt containing "/screenshots/<file>.png" renders the image directly.
                 if let shotURL = ScreenshotURL.from(receipt.result, base: SettingsStore.shared.base) {
                     AsyncImage(url: shotURL) { phase in
                         switch phase {
@@ -364,14 +364,14 @@ struct ReceiptCardView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .shadow(color: VSColor.shadow, radius: 5, x: 0, y: 2)
                         case .failure:
-                            Text("（截图加载失败）").font(.system(size: 12)).foregroundColor(.secondary)
+                            Text(NSLocalizedString("(Screenshot failed to load)", comment: "")).font(.system(size: 12)).foregroundColor(.secondary)
                         default:
                             ProgressView().frame(width: 80, height: 80)
                         }
                     }
                 }
 
-                // V6.4 撤销按钮不再展示（界面只留实际内容，保持简洁；撤销能力保留在语音指令链）。
+                // V6.4 dropped the undo button (the UI shows only real content, keep it clean; undo stays in the voice-command chain).
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -387,17 +387,17 @@ struct ReceiptCardView: View {
 }
 
 
-// MARK: - 图片回执 URL 解析
+// MARK: - Image receipt URL parsing
 
 enum ScreenshotURL {
-    /// 从回执文本提取 /screenshots/<file>.png 相对路径，拼上当前服务器 base。
+    /// Extract the /screenshots/<file>.png relative path from the receipt text and prefix the current server base.
     static func from(_ text: String, base: String) -> URL? {
         guard let rng = text.range(of: "/screenshots/") else { return nil }
         var end = text.index(rng.lowerBound, offsetBy: "/screenshots/".count)
         var path = "/screenshots/"
         while end < text.endIndex {
             let ch = text[end]
-            if ch == " " || ch == "\n" || ch == "（" || ch == ")" || ch == "。" { break }
+            if ch == " " || ch == "\n" || ch == ")" { break }
             path.append(ch)
             end = text.index(after: end)
         }

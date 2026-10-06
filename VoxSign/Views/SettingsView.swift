@@ -2,12 +2,12 @@
 //  SettingsView.swift
 //  VoxSign
 //
-//  豆包式设置（T3，UI 重设计 v3）：
-//  - 双连接模式：「云道 · 默认」（零配置，仅 Google 登录）/「自建」（默认空列表，自加服务器）
-//  - 自建添加服务器两种方式：IP 地址（内网检测 + 云端转发开关 + 保存前必检连通）/
-//    机器码（云道定位机器 → 同网直连 / 异网转发 → 检测后保存）
-//  - 连接状态：当前生效端点实时探测（绿/黄/灰）+ 立即重探
-//  - 语音：朗读回复开关 + 语速；后台：离线队列补投
+//  Doubao-style Settings (T3, UI redesign v3):
+//  - Two connection modes: "Cloud · default" (zero-config, Google sign-in only) / "Self-hosted" (empty list by default, add your own server)
+//  - Self-hosted add-server paths: IP address (LAN detection + cloud relay toggle + connectivity pre-check before save) /
+//    machine code (cloud locates the machine -> same-network direct / cross-network relay -> detected then saved)
+//  - Connection state: live probe of the active endpoint (green/yellow/gray) + re-probe now
+//  - Voice: speak-reply toggle + rate; background: offline-queue flush
 //
 
 import SwiftUI
@@ -21,28 +21,28 @@ struct SettingsView: View {
     #if canImport(Speech)
     @EnvironmentObject var speech: SpeechRecognizer
     #endif
-    /// T2 连接感知：实时状态 + 最近错误（设置页排障不黑盒）。
+    /// T2 connectivity: live state + last error (no black-box troubleshooting on the Settings page).
     @ObservedObject var conn = ConnectivityService.shared
-    /// T3 语音朗读设置。
+    /// T3 TTS settings.
     @ObservedObject var tts = VoiceOutputService.shared
     @Environment(\.dismiss) private var dismiss
 
-    // P1 云道：Google 登录状态。
+    // P1 cloud: Google sign-in state.
     @State private var googleBusy = false
     @State private var googleError = ""
     @State private var showGoogleAlert = false
 
-    // 添加服务器弹层（方式选择 → IP / 机器码）。
+    // Add-server sheet (method picker -> IP / machine code).
     @State private var showAdd = false
     @State private var addStep: AddStep = .method
-    // IP 地址表单
+    // IP address form
     @State private var ipName = ""
     @State private var ipBase = ""
     @State private var ipToken = ""
     @State private var ipViaRelay = false
     @State private var ipBusy = false
     @State private var ipError = ""
-    // 机器码表单
+    // Machine-code form
     @State private var mcCode = ""
     @State private var mcBusy = false
     @State private var mcInfo: MachineInfo?
@@ -51,7 +51,7 @@ struct SettingsView: View {
 
     private enum AddStep { case method, ip, machine }
 
-    /// 机器码粘贴净化：从粘贴文本中提取 XXXX-XXXX-XXXX 形态的机器码（忽略大小写，统一大写），丢弃其余文字。
+    /// Machine-code paste cleanup: extract a XXXX-XXXX-XXXX code from pasted text (case-insensitive, uppercased), drop the rest.
     private static func extractedMachineCode(from text: String) -> String? {
         let pattern = #"\b[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}\b"#
         guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
@@ -61,11 +61,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // —— 连接模式：云道（默认）/ 自建 ——
+                // -- Connection mode: cloud (default) / self-hosted --
                 Section {
-                    Picker("连接模式", selection: $settings.mode) {
-                        Text("云道 · 默认").tag(ConnectionMode.cloud)
-                        Text("自建").tag(ConnectionMode.selfHosted)
+                    Picker("Connection mode", selection: $settings.mode) {
+                        Text("Cloud · default").tag(ConnectionMode.cloud)
+                        Text("Self-hosted").tag(ConnectionMode.selfHosted)
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: settings.mode) { _ in
@@ -79,56 +79,56 @@ struct SettingsView: View {
                     selfHostedSection
                 }
 
-                // —— 连接状态 ——
-                Section("连接状态") {
+                // -- Connection state --
+                Section("Connection state") {
                     HStack {
                         Circle().fill(conn.state == .online ? Color.green : (conn.state == .reconnecting ? Color.yellow : Color.gray))
                             .frame(width: 8, height: 8)
-                        Text(conn.state == .online ? "已连接" : (conn.state == .reconnecting ? "正在重连…" : "离线"))
+                        Text(conn.state == .online ? "Connected" : (conn.state == .reconnecting ? "Reconnecting…" : "Offline"))
                         Spacer()
-                        // UI v3：延迟小字（豆包式 12.5pt 灰字，如「延迟 42ms」）。
+                        // UI v3: small latency text (Doubao-style 12.5pt gray, e.g. "Latency 42ms").
                         if conn.state == .online && conn.latencyMs > 0 {
-                            Text("延迟 \(conn.latencyMs)ms")
+                            Text("Latency \(conn.latencyMs)ms")
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
                     }
-                    Button("立即重探") { conn.probe() }
+                    Button("Re-probe now") { conn.probe() }
                     if !conn.lastError.isEmpty {
                         Text(conn.lastError).font(.system(size: 11)).foregroundColor(.secondary)
                     }
                 }
 
-                // —— 语音（豆包式 TTS）——
-                Section("语音朗读") {
-                    Toggle("朗读回复（TTS）", isOn: $tts.enabled)
+                // -- Voice (Doubao-style TTS) --
+                Section("Speech") {
+                    Toggle("Speak replies (TTS)", isOn: $tts.enabled)
                     HStack {
-                        Text("语速").font(.system(size: 13))
+                        Text("Rate").font(.system(size: 13))
                         Slider(value: $tts.rate, in: 0.4...0.6, step: 0.05)
                         Text(String(format: "%.2f", tts.rate)).font(.system(size: 11)).foregroundColor(.secondary)
                     }
-                    Button("试听") { tts.speak("你好，我是 VoxSign 语音助手。") }
+                    Button("Play sample") { tts.speak("Hello, I am your VoxSign voice assistant.") }
                 }
 
-                // —— 后台能力 ——
+                // -- Background capability --
                 #if canImport(Speech)
-                Section("后台能力") {
-                    Button("补投离线队列") {
+                Section("Background") {
+                    Button("Flush offline queue") {
                         Task { _ = await model.flushQueue() }
                     }
-                    Text("离线队列 \(DeliveryQueue.shared.count) 条待投递 · 通知已授权=\(NotificationService.shared.authorized ? "是" : "否")")
+                    Text("Offline queue: \(DeliveryQueue.shared.count) pending · notifications authorized=\(NotificationService.shared.authorized ? "Yes" : "No")")
                         .font(.system(size: 11)).foregroundColor(.secondary)
                 }
                 #endif
 
                 Section {
-                    Text("云道：默认模式，Google 登录即用。自建：添加自己的 Harness 服务器（IP 地址或机器码）。").font(.system(size: 11)).foregroundColor(.secondary)
+                    Text("Cloud: the default mode, sign in with Google and go. Self-hosted: add your own Harness server (IP address or machine code).").font(.system(size: 11)).foregroundColor(.secondary)
                 }
 
-                // 版本号（每次更新递增，便于用户确认是否装到最新版）。
+                // Version (incremented each release, so users can confirm they are on the latest build).
                 Section {
                     HStack {
-                        Text("版本")
+                        Text("Version")
                         Spacer()
                         Text(appVersionLabel())
                             .font(.system(size: 12, weight: .medium))
@@ -136,35 +136,35 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationTitle("设置")
+            .navigationTitle("Settings")
             .toolbar {
-                Button("完成") { dismiss() }
+                Button("Done") { dismiss() }
             }
             .sheet(isPresented: $showAdd) { addServerSheet }
-            .alert("Google 登录失败", isPresented: $showGoogleAlert) {
-                Button("好", role: .cancel) {}
+            .alert("Google sign-in failed", isPresented: $showGoogleAlert) {
+                Button("OK", role: .cancel) {}
             } message: {
-                Text(googleError.isEmpty ? "未知错误" : googleError)
+                Text(googleError.isEmpty ? "Unknown error" : googleError)
             }
         }
     }
 
-    // MARK: - 云道视图（零配置，仅 Google 登录）
+    // MARK: - Cloud view (zero-config, Google sign-in only)
 
     private var cloudSection: some View {
         Section {
             if let auth = settings.googleAuth {
-                LabeledContent("账户") { Text(auth.email).font(.system(size: 13)) }
-                LabeledContent("档位") { Text(tierLabel(auth.tier)).font(.system(size: 13)) }
+                LabeledContent("Account") { Text(auth.email).font(.system(size: 13)) }
+                LabeledContent("Plan") { Text(tierLabel(auth.tier)).font(.system(size: 13)) }
                 if let u = auth.quotaUsed, let l = auth.quotaLimit {
-                    LabeledContent("今日额度") { Text("\(u) / \(l)").font(.system(size: 13)) }
+                    LabeledContent("Today's quota") { Text("\(u) / \(l)").font(.system(size: 13)) }
                 }
                 if let t = auth.trialUntil, !t.isEmpty {
-                    LabeledContent("体验会员") { Text("至 \(t)").font(.system(size: 13)) }
+                    LabeledContent("Trial") { Text("until \(t)").font(.system(size: 13)) }
                 }
                 HStack {
-                    Button("刷新登录态") { refreshMe() }
-                    Button("退出登录", role: .destructive) { settings.logoutGoogle() }
+                    Button("Refresh session") { refreshMe() }
+                    Button("Sign out", role: .destructive) { settings.logoutGoogle() }
                 }
                 if !googleError.isEmpty {
                     Text(googleError).font(.system(size: 11)).foregroundColor(.red)
@@ -176,10 +176,10 @@ struct SettingsView: View {
                     if googleBusy {
                         ProgressView().frame(maxWidth: .infinity)
                     } else {
-                        // UI v3：Google 官方四色 G（自绘）+ 登录文案（豆包式居中白按钮）。
+                        // UI v3: official four-color Google G (drawn in code) + sign-in text (Doubao-style centered white button).
                         HStack(spacing: 8) {
                             GoogleLogo()
-                            Text("使用 Google 登录")
+                            Text("Sign in with Google")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(.black.opacity(0.85))
                         }
@@ -196,26 +196,26 @@ struct SettingsView: View {
                 if !googleError.isEmpty {
                     Text(googleError).font(.system(size: 11)).foregroundColor(.red)
                 }
-                Text("云道模式零配置：Google 一键登录，自动连接 VoxSign 云端。").font(.system(size: 11)).foregroundColor(.secondary)
+                Text("Cloud mode is zero-config: one-tap Google sign-in, auto-connected to the VoxSign cloud.").font(.system(size: 11)).foregroundColor(.secondary)
             }
         } header: {
-            Text("云道")
+            Text("Cloud")
         } footer: {
-            Text("无需服务器地址、无需 Token")
+            Text("No server address or token needed")
         }
     }
 
-    // MARK: - 自建视图（默认空列表 + 添加）
+    // MARK: - Self-hosted view (empty list by default + add)
 
     private var selfHostedSection: some View {
         Group {
-            Section("服务器（自建）") {
+            Section("Servers (self-hosted)") {
                 if settings.servers.isEmpty {
                     VStack(spacing: 6) {
-                        Text("还没有自建服务器")
+                        Text("No self-hosted servers yet")
                             .font(.system(size: 14, weight: .medium))
                             .padding(.top, 6)
-                        Text("添加后即可连接 · 支持 IP 地址 / 机器码两种方式")
+                        Text("Add one to connect · supports IP address or machine code")
                             .font(.system(size: 11)).foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -228,19 +228,19 @@ struct SettingsView: View {
                 Button {
                     openAddSheet()
                 } label: {
-                    Label("添加服务器", systemImage: "plus.circle")
+                    Label("Add server", systemImage: "plus.circle")
                 }
             }
 
             if let active = settings.servers.first(where: { $0.id == settings.activeServerID }) {
-                Section("当前：\(active.name)") {
-                    TextField("名称", text: Binding(
+                Section("Current: \(active.name)") {
+                    TextField("Name", text: Binding(
                         get: { active.name },
                         set: { v in
                             guard let i = settings.servers.firstIndex(where: { $0.id == settings.activeServerID }) else { return }
                             settings.servers[i].name = v
                         }))
-                    TextField("地址 http://…", text: Binding(
+                    TextField("URL http://…", text: Binding(
                         get: { active.base },
                         set: { v in
                             guard let i = settings.servers.firstIndex(where: { $0.id == settings.activeServerID }) else { return }
@@ -258,14 +258,14 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                     if active.isMachineBound || active.usesRelay {
-                        Text([active.isMachineBound ? "机器码绑定" : nil,
-                              active.usesRelay ? "云端转发" : nil]
+                        Text([active.isMachineBound ? "Machine-code bound" : nil,
+                              active.usesRelay ? "Cloud relay" : nil]
                             .compactMap { $0 }.joined(separator: " · "))
                             .font(.system(size: 11)).foregroundColor(.blue)
                     }
                     HStack {
-                        Button("测试连接") { model.testConnection() }
-                        Button("立即重探") { conn.probe() }
+                        Button("Test connection") { model.testConnection() }
+                        Button("Re-probe now") { conn.probe() }
                     }
                     if !model.statusLine.isEmpty {
                         Text(model.statusLine).font(.system(size: 12))
@@ -275,7 +275,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - 添加服务器弹层（方式选择 → IP / 机器码）
+    // MARK: - Add-server sheet (method picker -> IP / machine code)
 
     private var addServerSheet: some View {
         NavigationStack {
@@ -283,15 +283,15 @@ struct SettingsView: View {
                 switch addStep {
                 case .method:
                     Form {
-                        Section("选择添加方式") {
+                        Section("Choose a method") {
                             Button {
                                 addStep = .ip
                                 ipName = ""; ipBase = ""; ipToken = ""; ipViaRelay = false; ipError = ""
                             } label: {
                                 HStack {
-                                    Label("IP 地址", systemImage: "network")
+                                    Label("IP address", systemImage: "network")
                                     Spacer()
-                                    Text("输入 IP + 端口 + Token").font(.caption).foregroundColor(.secondary)
+                                    Text("Enter IP + port + token").font(.caption).foregroundColor(.secondary)
                                 }
                             }
                             Button {
@@ -299,14 +299,14 @@ struct SettingsView: View {
                                 mcCode = ""; mcInfo = nil; mcRelay = false; mcError = ""
                             } label: {
                                 HStack {
-                                    Label("机器码", systemImage: "number")
+                                    Label("Machine code", systemImage: "number")
                                     Spacer()
-                                    Text("装机机器码，自动关联").font(.caption).foregroundColor(.secondary)
+                                    Text("Machine code from install; auto-located").font(.caption).foregroundColor(.secondary)
                                 }
                             }
                         }
                         Section {
-                            Text("自建默认空列表，无任何预置服务器。").font(.system(size: 11)).foregroundColor(.secondary)
+                            Text("Self-hosted starts with an empty list; no servers are preconfigured.").font(.system(size: 11)).foregroundColor(.secondary)
                         }
                     }
                 case .ip:
@@ -315,15 +315,15 @@ struct SettingsView: View {
                     machineAddForm
                 }
             }
-            .navigationTitle(addStep == .method ? "添加服务器" : (addStep == .ip ? "IP 地址" : "机器码"))
+            .navigationTitle(addStep == .method ? "Add server" : (addStep == .ip ? "IP address" : "Machine code"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showAdd = false; addStep = .method }
+                    Button("Cancel") { showAdd = false; addStep = .method }
                 }
                 if addStep != .method {
                     ToolbarItem(placement: .navigation) {
-                        Button("返回") { addStep = .method }
+                        Button("Back") { addStep = .method }
                     }
                 }
             }
@@ -331,22 +331,22 @@ struct SettingsView: View {
         .presentationDetents([.medium, .large])
     }
 
-    /// IP 地址方式：内网检测 → 云端转发开关 → 保存前必检连通。
+    /// IP-address path: LAN detection -> cloud relay toggle -> connectivity pre-check before save.
     private var ipAddForm: some View {
         Form {
-            Section("服务器") {
-                TextField("名称（如：办公室 Mac）", text: $ipName)
+            Section("Server") {
+                TextField("Name (e.g. Office Mac)", text: $ipName)
                 TextField("http://192.168.x.x:8897", text: $ipBase)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                SecureField("Bearer Token（可选）", text: $ipToken)
+                SecureField("Bearer Token (optional)", text: $ipToken)
             }
             if isLanIP(ipBase) {
                 Section {
-                    Toggle("通过云端转发访问", isOn: $ipViaRelay)
+                    Toggle("Access via cloud relay", isOn: $ipViaRelay)
                 } footer: {
-                    Text("检测到内网地址：外网手机不可直达，由云道中转（需内网端开启转发）。")
+                    Text("Private address detected: an external phone cannot reach it directly; it will be relayed via the cloud (relay must be enabled on the LAN side).")
                 }
             }
             Section {
@@ -356,10 +356,10 @@ struct SettingsView: View {
                     if ipBusy {
                         HStack {
                             ProgressView().frame(width: 16, height: 16)
-                            Text("正在检测连接…").frame(maxWidth: .infinity)
+                            Text("Checking connection…").frame(maxWidth: .infinity)
                         }
                     } else {
-                        Text("保存并检测连接").frame(maxWidth: .infinity)
+                        Text("Save and check connection").frame(maxWidth: .infinity)
                     }
                 }
                 .disabled(ipBusy || ipBase.isEmpty)
@@ -370,29 +370,29 @@ struct SettingsView: View {
         }
     }
 
-    /// 机器码方式：查询 → 云道定位 → 直连/转发判定 → 检测后保存。
+    /// Machine-code path: lookup -> cloud locates -> direct/relay decision -> check then save.
     private var machineAddForm: some View {
         Form {
-            Section("机器码") {
+            Section("Machine code") {
                 TextField("AB12-CD34-EF56", text: $mcCode)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
                     .autocapitalization(.allCharacters)
-                    // 粘贴净化：从粘贴文本提取机器码（XXXX-XXXX-XXXX），丢弃其余文字，统一大写。
+                    // Paste cleanup: extract the machine code (XXXX-XXXX-XXXX) from pasted text, drop the rest, uppercase.
                     .onChange(of: mcCode) { newValue in
                         if let code = Self.extractedMachineCode(from: newValue), code != newValue {
                             mcCode = code
                         }
                     }
-                Text("输入 Harness 装机生成的机器码，云道自动定位该机器。")
+                Text("Enter the machine code generated at Harness install; the cloud locates this machine automatically.")
                     .font(.system(size: 11)).foregroundColor(.secondary)
             }
             if let info = mcInfo {
                 Section {
-                    LabeledContent("机器") { Text(info.name).font(.system(size: 13)) }
-                    LabeledContent("地址") { Text(info.base).font(.system(size: 13)) }
-                    LabeledContent("连接方式") {
-                        Text(mcRelay ? "云道转发（异网）" : "同网直连")
+                    LabeledContent("Machine") { Text(info.name).font(.system(size: 13)) }
+                    LabeledContent("Address") { Text(info.base).font(.system(size: 13)) }
+                    LabeledContent("Connection") {
+                        Text(mcRelay ? "Cloud relay (cross-network)" : "Direct same-network")
                             .font(.system(size: 13))
                             .foregroundColor(mcRelay ? .blue : .green)
                     }
@@ -404,10 +404,10 @@ struct SettingsView: View {
                         if mcBusy {
                             HStack {
                                 ProgressView().frame(width: 16, height: 16)
-                                Text("正在检测…").frame(maxWidth: .infinity)
+                                Text("Checking…").frame(maxWidth: .infinity)
                             }
                         } else {
-                            Text("保存").frame(maxWidth: .infinity)
+                            Text("Save").frame(maxWidth: .infinity)
                         }
                     }
                     .disabled(mcBusy)
@@ -420,10 +420,10 @@ struct SettingsView: View {
                         if mcBusy {
                             HStack {
                                 ProgressView().frame(width: 16, height: 16)
-                                Text("正在查询机器码…").frame(maxWidth: .infinity)
+                                Text("Looking up machine code…").frame(maxWidth: .infinity)
                             }
                         } else {
-                            Text("查询并绑定").frame(maxWidth: .infinity)
+                            Text("Look up and bind").frame(maxWidth: .infinity)
                         }
                     }
                     .disabled(mcBusy || mcCode.isEmpty)
@@ -435,9 +435,9 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - 动作
+    // MARK: - Actions
 
-    /// 保存 IP 方式：先检测（同网直连；开启转发则云道可用也算通），通过才保存。
+    /// Save IP path: check first (same-network direct; if relay is on, cloud reachability also counts); save only on success.
     private func saveIP() {
         ipBusy = true
         ipError = ""
@@ -447,11 +447,11 @@ struct SettingsView: View {
             ipBusy = false
             guard directOK || relayOK else {
                 ipError = ipViaRelay
-                    ? "无法连接：内网地址与云道转发均不可达（确认服务器在线、内网端已开启转发）"
-                    : "无法连接该地址（确认服务器在线且地址正确）"
+                    ? "Cannot connect: both the private address and the cloud relay are unreachable (confirm the server is online and relay is enabled on the LAN side)"
+                    : "Cannot connect to this address (confirm the server is online and the address is correct)"
                 return
             }
-            settings.addServer(name: ipName.isEmpty ? "服务器" : ipName,
+            settings.addServer(name: ipName.isEmpty ? "Server" : ipName,
                                base: ipBase,
                                token: ipToken,
                                viaRelay: ipViaRelay)
@@ -461,7 +461,7 @@ struct SettingsView: View {
         }
     }
 
-    /// 机器码查询：云道定位 → 直连探测 → 不通则标记异网转发。
+    /// Machine-code lookup: cloud locates -> direct probe -> if unreachable, flag as cross-network relay.
     private func lookupMachine() {
         mcBusy = true
         mcError = ""
@@ -473,7 +473,7 @@ struct SettingsView: View {
                 mcInfo = info
                 mcRelay = !direct
                 if !direct {
-                    mcError = "异网：将保存为「云道转发」模式，按需中转（用完即断）。"
+                    mcError = "Cross-network: will be saved as \"cloud relay\" mode, relayed on demand (disconnects when idle)."
                 }
             } catch {
                 mcError = error.localizedDescription
@@ -482,14 +482,14 @@ struct SettingsView: View {
         }
     }
 
-    /// 云道转发地址：https://voxsign.ai/relay/<机器码>（云端按机器码路由到该机反向连接；
-    /// 端口只按服务分不按机器分，转发请求全部复用 443）。
+    /// Cloud relay URL: https://voxsign.ai/relay/<machine-code> (the cloud routes by machine code to that machine's
+    /// reverse connection; ports are per-service not per-machine, and all relay traffic reuses 443).
     private func relayBase(code: String) -> String {
         let cloud = settings.cloudBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return "\(cloud)/relay/\(code)"
     }
 
-    /// 保存机器码方式：检测（直连 or 转发通道）通过才保存。
+    /// Save machine-code path: check (direct or relay channel) and save only on success.
     private func saveMachine(_ info: MachineInfo) {
         mcBusy = true
         mcError = ""
@@ -498,7 +498,7 @@ struct SettingsView: View {
             let ok = await APIClient.shared.healthCheck(base: saveBase)
             mcBusy = false
             guard ok else {
-                mcError = "无法连接（确认机器在线\(mcRelay ? "、云道转发可用" : "")）"
+                mcError = "Cannot connect (confirm the machine is online\(mcRelay ? " and the cloud relay is available" : ""))"
                 return
             }
             settings.addServer(name: info.name,
@@ -512,7 +512,7 @@ struct SettingsView: View {
         }
     }
 
-    /// 发起 Google 授权（PKCE）→ 换会话 JWT → 云道登录。
+    /// Start Google authorization (PKCE) -> exchange for a session JWT -> cloud sign-in.
     private func loginGoogle() {
         googleBusy = true
         googleError = ""
@@ -531,7 +531,7 @@ struct SettingsView: View {
         }
     }
 
-    /// 刷新登录态（GET /v1/me）。
+    /// Refresh the session (GET /v1/me).
     private func refreshMe() {
         googleError = ""
         Task {
@@ -551,7 +551,7 @@ struct SettingsView: View {
 
     private func tierLabel(_ tier: String) -> String {
         switch tier {
-        case "free": return "免费（每日额度内）"
+        case "free": return "Free (within daily quota)"
         case "prime": return "Prime"
         case "enterprise": return "Enterprise"
         default: return tier
@@ -563,8 +563,8 @@ struct SettingsView: View {
                 options: .regularExpression) != nil
     }
 
-    /// 版本号：Info.plist CFBundleShortVersionString + CFBundleVersion。
-    /// 每次发布递增 build，用户可在设置页最底部确认是否已更新到最新版。
+    /// Version: Info.plist CFBundleShortVersionString + CFBundleVersion.
+    /// The build increments each release; users can confirm they are on the latest build at the bottom of Settings.
     private func appVersionLabel() -> String {
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
@@ -573,24 +573,24 @@ struct SettingsView: View {
 }
 
 
-// MARK: - Google 官方四色 G（UI v3 自绘，非图片）
+// MARK: - Official four-color Google G (UI v3 drawn in code, not an image)
 
-/// 豆包式登录按钮用的 Google 品牌标识：四色环 + 白色 G 字形。
+/// Google logo for the Doubao-style sign-in button: four-color ring + white G glyph.
 struct GoogleLogo: View {
     var body: some View {
         ZStack {
-            // 蓝底圆环
+            // Blue ring base
             Circle().fill(Color(red: 0.259, green: 0.522, blue: 0.957)) // #4285F4
-            // 黄（左上 90° 扇形）
+            // Yellow (top-left 90° sector)
             sector(start: .degrees(180), end: .degrees(270))
                 .fill(Color(red: 0.988, green: 0.737, blue: 0.031))     // #FBBC05
-            // 绿（左下 90° 扇形）
+            // Green (bottom-left 90° sector)
             sector(start: .degrees(90), end: .degrees(180))
                 .fill(Color(red: 0.204, green: 0.659, blue: 0.325))     // #34A853
-            // 红（右下 90° 扇形）
+            // Red (bottom-right 90° sector)
             sector(start: .degrees(0), end: .degrees(90))
                 .fill(Color(red: 0.918, green: 0.263, blue: 0.208))     // #EA4335
-            // 白色 G 字形（semibold，视觉对齐官方 G 的位置）
+            // White G glyph (semibold, visually aligned to the official G position)
             Text("G")
                 .font(.system(size: 17, weight: .heavy))
                 .foregroundColor(.white)
@@ -600,7 +600,7 @@ struct GoogleLogo: View {
     }
 
     private func sector(start: Angle, end: Angle) -> some Shape {
-        // 圆心在 (10,10)，半径 10，画 90° 扇形（SwiftUI Path 角度从 3 点方向起、顺时针为正）。
+        // Center at (10,10), radius 10, draw a 90° sector (SwiftUI Path angles start at 3 o'clock, clockwise positive).
         Path { p in
             p.move(to: CGPoint(x: 10, y: 10))
             p.addArc(center: CGPoint(x: 10, y: 10),
@@ -614,7 +614,7 @@ struct GoogleLogo: View {
 }
 
 
-// MARK: - 服务器行（拆分自 ForEach，规避 Swift 类型检查超时）
+// MARK: - Server row (split out of the ForEach to avoid Swift type-check timeouts)
 
 private struct ServerRowView: View {
     let srv: ServerConfig
@@ -628,29 +628,29 @@ private struct ServerRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(srv.name).font(.system(size: 14, weight: .medium))
                 Text(srv.base).font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
-                // UI v3：连接方式 chips——机器码 / 同网直连 / 云端转发（豆包式小标签）。
+                // UI v3: connection-method chips — machine-code / direct / cloud relay (Doubao-style small tags).
                 if srv.isMachineBound || srv.usesRelay {
                     HStack(spacing: 4) {
                         if srv.isMachineBound {
-                            chip("机器码", .blue)
+                            chip("Machine code", .blue)
                         }
-                        chip(srv.usesRelay ? "云端转发" : "同网直连", srv.usesRelay ? .blue : .green)
+                        chip(srv.usesRelay ? "Cloud relay" : "Direct same-network", srv.usesRelay ? .blue : .green)
                     }
                 }
             }
             Spacer()
             if srv.id == settings.activeServerID {
-                Text("当前").font(.system(size: 11)).foregroundColor(.green)
+                Text("Current").font(.system(size: 11)).foregroundColor(.green)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture { settings.switchServer(srv.id); conn.probe() }
         .swipeActions {
-            // 解除机器码绑定：清除 machineCode，服务器条目保留（按普通自建使用）。
+            // Unbind the machine code: clear machineCode; the server entry stays (used as a normal self-hosted server).
             if srv.isMachineBound {
-                Button("解绑") { settings.unbindMachine(srv.id) }
+                Button("Unbind") { settings.unbindMachine(srv.id) }
             }
-            Button("删除", role: .destructive) { settings.removeServer(srv.id) }
+            Button("Delete", role: .destructive) { settings.removeServer(srv.id) }
         }
     }
 

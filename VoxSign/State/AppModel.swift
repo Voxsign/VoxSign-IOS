@@ -2,17 +2,17 @@
 //  AppModel.swift
 //  VoxSign
 //
-//  服务对接 + 状态编排（对应 web/app.js）。纯判断/状态机集中在 VSLogic 与 SSEParser；
-//  本类只做：状态持有、HTTP/SSE 编排、UI 驱动。对应控制流处写【伪代码逻辑层】注释块。
+//  Service integration + state orchestration (mirrors web/app.js). Pure judgments / state machines
+//  live in VSLogic and SSEParser; this class only holds state, orchestrates HTTP/SSE, and drives the UI.
 //
 
 import Foundation
 import SwiftUI
 import Combine
 
-// MARK: - 对话流模型
+// MARK: - Chat flow model
 
-/// 对话流里的一行（用户/ Harness 气泡、三点、执行卡、回执卡）。
+/// One row in the chat flow (user / harness bubble, typing dots, exec card, receipt card).
 enum ChatRow: Identifiable {
     case user(Bubble)
     case harness(Bubble)
@@ -30,7 +30,7 @@ enum ChatRow: Identifiable {
     }
 }
 
-/// 回执行：带稳定 id（修复原 .receipt 每次 id=UUID() 导致 ForEach 身份漂移、渲染不出的 bug）。
+/// Receipt row: with a stable id (fixes the old bug where .receipt used a fresh UUID each render, breaking ForEach identity).
 struct ReceiptRow: Identifiable {
     let id = UUID()
     let receipt: Receipt
@@ -43,17 +43,17 @@ struct Bubble: Identifiable {
     var text: String
     var badges: [Badge] = []
     var fromVoice: Bool = false
-    /// UI v3：语音消息录音秒数（气泡内显示 "3″"）。
+    /// UI v3: recorded seconds for a voice message (shown in the bubble, e.g. "3s").
     var voiceSeconds: Int? = nil
-    /// v2.4：随本条消息提交的资料附件。
+    /// v2.4: resource attachments submitted with this message.
     var attachments: [Attachment] = []
-    /// v2.4：本条回复消耗的 token（harness 气泡可显示）。
+    /// v2.4: tokens consumed by this reply (shown on the harness bubble).
     var costTokens: Int? = nil
-    /// v2.4：消息时间戳（会话历史排序/显示用）。
+    /// v2.4: message timestamp (for session history ordering/display).
     var timestamp: Date = Date()
 }
 
-/// 执行卡一行阶段状态。
+/// One stage row in the exec card.
 struct StageState: Identifiable {
     let id = UUID()
     let name: String
@@ -66,12 +66,12 @@ struct ExecCardState: Identifiable {
     var stages: [StageState]
 }
 
-// MARK: - Harness 状态（UI v3 豆包式顶栏 5pt 状态点，真实推导）
+// MARK: - Harness state (UI v3 top-bar 5pt status dot, derived from real state)
 
 enum HarnessState: Equatable {
-    case idle       // 灰：无任务
-    case busy       // 蓝呼吸：任务执行中
-    case decision   // 橙：等待用户确认/选择
+    case idle       // gray: no task
+    case busy       // breathing blue: task running
+    case decision   // orange: waiting for user confirm/select
 }
 
 // MARK: - AppModel
@@ -79,15 +79,15 @@ enum HarnessState: Equatable {
 @MainActor
 final class AppModel: ObservableObject {
 
-    // 对话流
+    // Chat flow
     @Published var rows: [ChatRow] = []
     @Published var decision: DecisionPoint? = nil
     @Published var systemBar: SystemBarInfo? = nil
 
-    /// UI v3：顶栏状态点数据源（busy / decision / idle）。
+    /// UI v3: data source for the top-bar status dot (busy / decision / idle).
     @Published var harnessState: HarnessState = .idle
 
-    // 角色折叠条
+    // Role collapsed bar
     @Published var activeRole: String = "executor"
     @Published var roleBarOpen: Bool = false
     @Published var roles: [RoleInfo] = [
@@ -96,38 +96,38 @@ final class AppModel: ObservableObject {
         RoleInfo(id: "verifier", label: "Verifier", active: false)
     ]
 
-    // 设置
+    // Settings
     @Published var showSettings: Bool = false
-    /// V6：点顶栏机器名打开的"切换机器"面板。
+    /// V6: the "switch machine" panel opened by tapping the top-bar machine name.
     @Published var showMachinePicker: Bool = false
     @Published var statusLine: String = ""
     @Published var inputText: String = ""
 
-    // v2.4 多会话（默认隐藏，不占主界面）
+    // v2.4 multi-session (hidden by default, not on the main screen)
     @Published var showSessions: Bool = false
     @Published var currentSessionID: String = ""
     var sessions: [ChatSession] { SessionStore.shared.sessions }
 
-    /// V6.3 顶栏副信息：当前**实际连接**的机器名（跟随连接状态；非在线显示"未连接"）。
-    @Published var machineLabel: String = "VoxSign 云端"
+    /// V6.3 top-bar sub-info: the machine name actually connected to (follows connection state; shows "Offline" when not online).
+    @Published var machineLabel: String = "VoxSign Cloud"
     private var machineLabelSub: AnyCancellable?
 
-    // v2.4 附件（资料）：输入条待提交的附件
+    // v2.4 attachments: pending attachments on the input bar
     @Published var pendingAttachments: [Attachment] = []
 
-    /// 诊断行（M7 真机排障）：上屏显示最近一次轮询状态/错误，避免黑盒"正在处理…"。
+    /// Diagnostic line (M7 on-device troubleshooting): shows the latest poll status/error on screen, avoiding a black-box "Processing…".
     @Published var diagLine: String = ""
 
-    /// T2 滚动修复：每次追加/替换气泡后 +1，RootView 监听它滚动到底。
-    /// 原来监听 rows.count 在"移除三点→追加新行"连续变化时会漏触发，
-    /// 导致用户说完话看不到 Harness 的后续内容。
+    /// T2 scroll fix: incremented after every append/replace; RootView observes it to scroll to bottom.
+    /// Observing rows.count previously missed the continuous "remove typing -> append row" sequence,
+    /// so the user spoke and couldn't see the harness's follow-up.
     @Published var scrollTick: Int = 0
 
-    /// T2 语音残留修复：语音提交后 1.5s 冷却期内，抑制识别 partial 回写输入框。
-    /// 否则旧音频尾音/新段残留会被识别成字，再次出现在输入框（用户看到"前面输入带进来"）。
+    /// T2 voice-remainder fix: for 1.5s after a voice submit, suppress ASR partials writing back to the
+    /// input box; otherwise old audio tails / new fragments get recognized as characters and reappear.
     @Published var voiceCooldown: Bool = false
 
-    // 当前任务（打断/续跑用）
+    // Current task (for interrupt / resume)
     private var currentTaskId: String?
     private var currentView: TaskView?
     private var sseTask: Task<Void, Never>?
@@ -135,31 +135,31 @@ final class AppModel: ObservableObject {
     private var lastSeq: Int = 0
     private var execCardRowId: UUID?
 
-    /// 一轮语音识别结果（P1 一轮一清：发送/新一轮时清空）。由 SpeechRecognizer 写入。
+    /// One-turn ASR result (P1 one-turn-one-clear: cleared on send / new turn). Written by SpeechRecognizer.
     var pendingVoiceTranscript: String = ""
 
     private let api = APIClient.shared
     private let sse = SSEClient.shared
-    /// v2.3：本轮提交时刻（渲染"已处理 X 秒"用）。
+    /// v2.3: this turn's submit time (for rendering "Processed in Xs").
     private var lastSubmitAt = Date()
-    /// T2 连接感知：网络恢复自动补投的订阅（取消时清理）。
+    /// T2 connectivity: subscription to auto-flush on network recovery (cleared on cancel).
     private var connSub: AnyCancellable?
 
     init() {
-        // v2.4 多会话：确保至少一个会话，并把当前对话流 rows 还原成该会话的历史消息。
-        // UI v3（豆包式空态）：新会话只有一行灰字空态（"按住🎤说话，或点⌨打字"）。
+        // v2.4 multi-session: ensure at least one session, and restore the current chat rows from its history.
+        // UI v3 (Doubao-style empty state): a new session shows only one gray empty-state line.
         SessionStore.shared.ensureInitialSession()
         currentSessionID = SessionStore.shared.currentSessionID
         rows = Self.messagesToRows(SessionStore.shared.loadMessages(for: currentSessionID))
 
-        // T2 豆包式交互：网络恢复 → 自动补投离线队列（不丢语音指令）。
+        // T2 Doubao-style: on network recovery -> auto-flush the offline queue (voice commands never lost).
         connSub = ConnectivityService.shared.onOnline { [weak self] in
             guard let self = self else { return }
             Task { await self.flushQueue() }
         }
 
-        // V6.3 顶栏机器名：跟随"连接状态 + 模式 + 活动服务器"刷新——
-        // 机器名必须与实际连接目标一致（只有真正切过去名字才变，默认=云端）。
+        // V6.3 top-bar machine name: refresh on (connection state + mode + active server) —
+        // the name must match the actual connection target (it only changes when you really switch; default = cloud).
         let store = SettingsStore.shared
         machineLabelSub = Publishers.CombineLatest3(store.$mode,
                                                    store.$activeServerID,
@@ -167,7 +167,7 @@ final class AppModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshMachineLabel() }
         refreshMachineLabel()
-        // T2 豆包式交互：常听语音识别到完整一句话 → 自动提交（开口即达，无需按按钮）。
+        // T2 Doubao-style: when ASR recognizes a complete sentence -> auto-submit (speak-and-go, no button tap).
         #if canImport(Speech)
         SpeechRecognizer.shared.onFinalSegment = { [weak self] text in
             guard let self = self, !text.isEmpty else { return }
@@ -176,23 +176,23 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// T2 语音专用发送：与键盘 send 同链路，但气泡标记 fromVoice + 清一轮识别缓冲。
-    /// v2.1：决策点存在时语音优先口答（I06/I13/I17）；极短噪声词不提交（先进理念6）。
+    /// T2 voice-specific send: same path as keyboard send, but the bubble is flagged fromVoice and the one-turn buffer is cleared.
+    /// v2.1: at a decision point voice prefers spoken answers (I06/I13/I17); very short filler words are not submitted.
     func sendVoice(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         #if canImport(Speech)
         SpeechRecognizer.shared.resetRound()
         #endif
-        // T3 豆包式：用户开口时立即打断上一段朗读（先听用户说）。
+        // T3 Doubao-style: when the user starts speaking, immediately interrupt the previous TTS (listen to the user first).
         VoiceOutputService.shared.stop()
 
-        // v2.3 用户指令（2026-10-04）"所有拦截都去掉，不要替别人做决定"：
-        // 删除本地口答决策拦截层（确认/选项/撤销/否定词判断）——语音一律作为新指令直通后台，
-        // 不再弹"我听到的是「不要」…"类确认，避免含"不要/不用"的正常长句被误拦导致无反馈。
-        // isNoiseWord 哼哈词过滤保留：防止"好/嗯"这类词提交后触发后台"你想让我做什么"回问。
+        // v2.3 user directive (2026-10-04): "remove all interception, don't decide for the user":
+        // the local spoken-answer interception layer (confirm/option/undo/negative-word checks) is removed —
+        // every voice utterance goes straight to the backend as a new command, with no confirmation prompts,
+        // so normal long sentences containing negations are not falsely blocked. Filler filtering is kept to avoid backend follow-up loops.
         if VSLogic.isNoiseWord(t) {
-            DiagLogger.shared.log("ASR", "噪声词已忽略: \(t)")
+            DiagLogger.shared.log("ASR", "filler ignored: \(t)")
             return
         }
         appendUser(t, fromVoice: true)
@@ -206,28 +206,28 @@ final class AppModel: ObservableObject {
         submit(t)
     }
 
-    /// v2.1 口答决策：确认/选项/撤销。返回 true=已作为口答消费（不再提交为新任务）。
+    /// v2.1 spoken-answer decision: confirm/option/undo. Returns true if consumed as a spoken answer (not submitted as a new task).
     private func handleVoiceDecision(_ t: String) -> Bool {
-        // I17 / 先进理念2 语音撤销链：说"撤销"回滚最近一次可撤销操作。
+        // I17 voice undo chain: say "undo" to roll back the last reversible operation.
         if VSLogic.isUndoPhrase(t) {
             if let row = rows.last, case .receipt(let r) = row, r.undo.show {
-                speak("好，撤销刚才的操作。")
+                speak("OK, undoing the last operation.")
                 rollback()
                 return true
             }
-            return false   // 没有可撤销对象 → 不当撤销消费，按普通指令走
+            return false   // nothing to undo -> not treated as undo, goes through as a normal command
         }
         guard let d = decision else { return false }
         switch d.kind {
         case .confirm:
-            // I13 分险级：高风险动作（提交/推送/合并/部署/删除…）口答不生效，强制按钮。
+            // I13 risk tier: high-risk actions (commit/push/merge/deploy/delete...) require a button; spoken answers do not apply.
             let probe = (currentView?.receipt ?? "") + (currentView?.question ?? "")
             if VSLogic.isHighRiskAction(probe) {
-                speak("这是高风险操作，请在下方点击按钮确认。")
+                speak("This is a high-risk operation; please confirm with the button below.")
                 return true
             }
-            if VSLogic.isAffirmPhrase(t) { answer("执行"); return true }
-            if VSLogic.isNegativePhrase(t) { answer("拒绝"); return true }
+            if VSLogic.isAffirmPhrase(t) { answer("execute"); return true }
+            if VSLogic.isNegativePhrase(t) { answer("reject"); return true }
             return false
         case .ask:
             if let hit = d.options.first(where: {
@@ -236,7 +236,7 @@ final class AppModel: ObservableObject {
                 answer(hit.id)
                 return true
             }
-            // "都可以/随便/听你的" → 第一选项（豆包式自然应答）。
+            // "anything / whatever / your call" -> first option (Doubao-style natural answer).
             if VSLogic.isAffirmPhrase(t), let first = d.options.first {
                 answer(first.id)
                 return true
@@ -247,14 +247,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - 发送入口
+    // MARK: - Send entry
     //
     /**
-     * 【伪代码逻辑层】（必写：发送→打断判定→提交）
+     * 【Pseudocode logic layer】(required: send -> interrupt check -> submit)
      *   send(text):
-     *     若 isInterruptPhrase(text) 且有进行中任务（currentTaskId 非终态）:
-     *       → 走 maybeInterrupt(text)（红色系统条 + POST /v1/tasks/{id}/cancel）
-     *     否则:
+     *     if isInterruptPhrase(text) and a task is running (currentTaskId not terminal):
+     *       -> maybeInterrupt(text) (red system bar + POST /v1/tasks/{id}/cancel)
+     *     else:
      *       → submit(text)
      */
     func send() {
@@ -273,118 +273,118 @@ final class AppModel: ObservableObject {
         submit(text, attachments: atts)
     }
 
-    // MARK: - 提交 → SSE 流转
+    // MARK: - Submit -> SSE flow
     //
     /**
-     * 【伪代码逻辑层】（必写：提交→SSE 事件→决策点流转）
+     * 【Pseudocode logic layer】(required: submit -> SSE events -> decision flow)
      *   submit(text):
-     *     reqId = genRequestId()                 // 客户端幂等键
+     *     reqId = genRequestId()                 // client idempotency key
      *     POST /v1/tasks {text,request_id} → {task_id}
-     *     显示三点 typing
+     *     show typing dots
      *     openSSE(task_id)
      *   openSSE(id):
-     *     GET /v1/tasks/{id}/events?after=lastSeq（断线重连）
+     *     GET /v1/tasks/{id}/events?after=lastSeq (reconnect)
      *     for await ev:
-     *       stage     → 推进执行卡 + syncRole
-     *       need_ask  → decision = ask(question, options)（停在确认闸）
+     *       stage     -> advance exec card + syncRole
+     *       need_ask  -> decision = ask(question, options) (stop at the confirm gate)
      *       need_confirm → decision = confirm(question)
-     *       done      → 停流；用 done 事件构 TaskView → 渲染回执卡 + 徽章
-     *       failed    → 错误条
-     *       interrupt → 红色系统条三语义
-     *       canceled  → 终态错误条
-     *     流异常（未到终态）→ 带 ?after=lastSeq 重连
+     *       done      -> stop stream; build TaskView from the done event -> render receipt card + badges
+     *       failed    -> error bar
+     *       interrupt -> red system bar with three semantics
+     *       canceled  -> terminal error bar
+     *     stream error (not terminal) -> reconnect with ?after=lastSeq
      *   answer(id, ans):
      *     POST /v1/tasks/{id}/answer {answer:ans}
-     *     → 清 decision；重新 openSSE(id) 续跑
+     *     -> clear decision; reopen SSE(id) to continue
      */
     func submit(_ text: String, attachments: [Attachment] = []) {
         let reqId = VSLogic.genRequestId()
-        // v2.3（用户需求：微信式"已处理 X 秒"）：记录提交时刻，done 时算耗时。
+        // v2.3 (user request: WeChat-style "Processed in Xs"): record submit time; compute duration on done.
         lastSubmitAt = Date()
-        // UI v3：任务开始 → 顶栏状态点 busy（蓝呼吸）。
+        // UI v3: task starts -> top-bar dot busy (breathing blue).
         harnessState = .busy
-        // v2.2：先清上一轮残留中间态（typing/execCard），再开始本轮——连续说话不堆积"正在思考"。
+        // v2.2: clear the previous turn's residual intermediate state (typing/execCard) before this turn — back-to-back speech does not stack "Thinking".
         closeExecCard()
         rows.append(.typing)
         armLongTaskTimers()
         Task {
             do {
-                // T2 连接感知：提交前探测——不在线不傻等 15s 超时，直接进离线队列。
+                // T2 connectivity: probe before submit — if offline, don't wait 15s, go straight to the offline queue.
                 guard await ConnectivityService.shared.isReachable() else {
                     removeTyping()
                     if DeliveryQueue.shared.enqueue(PendingSubmission(requestId: reqId, text: text, mode: "text")) {
-                        DiagLogger.shared.log("QUEUE", "离线直接入队 reqId=\(reqId) 队列=\(DeliveryQueue.shared.count)条")
-                        appendHarness("当前不在线（\(ConnectivityService.shared.lastError)），指令已进入离线队列（\(DeliveryQueue.shared.count) 条待投递），联网后自动补投。",
+                        DiagLogger.shared.log("QUEUE", "offline enqueue reqId=\(reqId) queue=\(DeliveryQueue.shared.count)")
+                        appendHarness("You are offline (\(ConnectivityService.shared.lastError)). The command was added to the offline queue (\(DeliveryQueue.shared.count) pending) and will be sent automatically once you are online.",
                                       view: TaskView(status: "canceled"))
                     } else {
-                        appendHarness("当前不在线，且离线队列已满，请联网后重试。",
+                        appendHarness("You are offline and the offline queue is full; please retry once you are online.",
                                       view: TaskView(status: "canceled"))
                     }
                     return
                 }
                 let res = try await api.submitTask(text: text, requestId: reqId, attachments: attachments)
-                // v2.4：提交成功后清空待提交附件（断网入队/失败分支不清，附件随在线提交链路）。
+                // v2.4: clear pending attachments on successful submit (offline-queue/failure branches keep them; attachments ride the online submit path).
                 pendingAttachments = []
                 removeTyping()
-                // 多任务加固：新任务开始前清掉上一轮未决的 decision 与执行卡追踪，
-                // 避免上一轮 SSE/轮询残留把新任务误判成旧状态（首条卡/次条好的时序矛盾）。
+                // Multi-task hardening: before a new task clears the previous unresolved decision and exec-card tracking,
+                // so leftover SSE/poll state cannot misread the new task as the old one.
                 decision = nil
                 execCardRowId = nil
                 currentTaskId = res.taskId
                 currentView = TaskView(taskId: res.taskId, status: res.status)
                 ensureExecCard()
-                DiagLogger.shared.log("SUBMIT", "新任务 task=\(res.taskId) status=\(res.status ?? "-") reqId=\(reqId)")
-                // P0：决策以轮询 GET /v1/tasks/{id} 为准（与 web/app.js 一致，证据来自 task json）；
-                //     SSE 并行只驱动执行卡 stage 高亮（P2）。两者并行不冲突：轮询命中终态/决策点即停轮询。
+                DiagLogger.shared.log("SUBMIT", "new task task=\(res.taskId) status=\(res.status ?? "-") reqId=\(reqId)")
+                // P0: decisions are driven by polling GET /v1/tasks/{id} (matching web/app.js; evidence from the task json);
+                //     SSE in parallel only drives the exec-card stage highlight (P2). They don't conflict: polling stops at a terminal/decision point.
                 startFlow(taskId: res.taskId)
             } catch {
-                // T1 后台能力：提交失败（断网/服务不可达/后台挂起）→ 入投递队列，
-                // 网络恢复后按 request_id 幂等补投；不丢语音输入。
+                // T1 background capability: submit failure (network loss / unreachable / background suspended) -> enqueue;
+                // on network recovery it is replayed idempotently by request_id; voice input is never lost.
                 removeTyping()
                 if DeliveryQueue.shared.enqueue(PendingSubmission(requestId: reqId, text: text, mode: "text")) {
-                    DiagLogger.shared.log("QUEUE", "提交失败已入队 reqId=\(reqId) 队列=\(DeliveryQueue.shared.count)条 err=\(error.localizedDescription)")
-                    appendHarness("网络暂不可达，已进入离线队列（\(DeliveryQueue.shared.count) 条待投递），恢复后自动补投。",
+                    DiagLogger.shared.log("QUEUE", "submit failed, enqueued reqId=\(reqId) queue=\(DeliveryQueue.shared.count) err=\(error.localizedDescription)")
+                    appendHarness("The network is temporarily unreachable; your message was added to the offline queue (\(DeliveryQueue.shared.count) pending) and will be sent automatically once it recovers.",
                                   view: TaskView(status: "canceled"))
                 } else {
-                    appendHarness("提交失败：\(error.localizedDescription)（检查右上角 ⚙ server 地址/token）",
+                    appendHarness("Submit failed: \(error.localizedDescription) (check the ⚙ server address/token in the top right)",
                                   view: TaskView(status: "canceled"))
                 }
             }
         }
     }
 
-    /// T1 后台能力：手动触发队列补投（网络恢复回调/设置页"补投"按钮共用）。
-    /// - Returns: 本次补投条数。
+    /// T1 background: manually trigger a queue flush (shared by the network-recovery callback and the Settings "Flush" button).
+    /// - Returns: number delivered this pass.
     @discardableResult
     func flushQueue() async -> Int {
         let n = await DeliveryQueue.shared.flush()
         if n > 0 {
-            DiagLogger.shared.log("QUEUE", "补投成功 \(n) 条，剩余 \(DeliveryQueue.shared.count)")
-            appendHarness("离线队列已补投 \(n) 条。", view: TaskView(status: "done"))
+            DiagLogger.shared.log("QUEUE", "flushed \(n), remaining \(DeliveryQueue.shared.count)")
+            appendHarness("Flushed \(n) offline queue item(s).", view: TaskView(status: "done"))
         }
         return n
     }
 
-    /// 一轮任务的双流编排：SSE stage 流 + 轮询决策。
+    /// Dual-stream orchestration for one task: SSE stage stream + polling decisions.
     private func startFlow(taskId: String) {
         openSSE(taskId: taskId)
         startPolling(taskId: taskId)
     }
 
     /**
-     * 【伪代码逻辑层】（必写：轮询 tick → 决策点路由）
-     *   startPolling(id): 每 ~900ms GET /v1/tasks/{id}
+     * 【Pseudocode logic layer】(required: poll tick -> decision routing)
+     *   startPolling(id): GET /v1/tasks/{id} every ~900ms
      *   tick(view):
-     *     running      → 同步角色；按状态推进执行卡；继续轮询
-     *     need_ask     → 停轮询；收起执行卡；decision = ask(question, options)
-     *     need_confirm → 停轮询；收起执行卡；decision = confirm(question)
-     *     done         → 停轮询；收 SSE；渲染回执卡
-     *     canceled/interrupted → 停轮询；错误条
-     *   命中"一屏一个决策点"即停轮询，等待用户点选/确认后由 answer() 续跑。
+     *     running      -> sync role; advance the exec card; keep polling
+     *     need_ask     -> stop polling; collapse the exec card; decision = ask(question, options)
+     *     need_confirm -> stop polling; collapse the exec card; decision = confirm(question)
+     *     done         -> stop polling; close SSE; render the receipt card
+     *     canceled/interrupted -> stop polling; error bar
+     *   Polling stops at the first "one decision point per screen" and waits; answer() resumes.
      */
     private func startPolling(taskId: String) {
         pollTask?.cancel()
-        DiagLogger.shared.log("POLL", "开始轮询 task=\(taskId) 间隔900ms")
+        DiagLogger.shared.log("POLL", "start polling task=\(taskId) interval 900ms")
         var failCount = 0
         pollTask = Task {
             while !Task.isCancelled {
@@ -393,22 +393,22 @@ final class AppModel: ObservableObject {
                     failCount = 0
                     DiagLogger.shared.log("POLL", "task=\(taskId) status=\(view.status ?? "nil") options=\(view.options?.count ?? -1) question=\(view.question ?? "-")")
                     await MainActor.run {
-                        // T2 UI 简化：正常轮询不再写诊断行（不再刷屏"轮询: running"），
-                        // 只有到达终态/决策点才留痕；失败走下面的 catch 单独显示。
+                        // T2 UI simplification: normal polling no longer writes the diagnostic line (no more
+                        // "poll: running" spam); only terminal/decision points leave a trace; failures show in catch below.
                         if view.status != "running" {
-                            self.diagLine = "轮询: \(view.status ?? "?")"
+                            self.diagLine = "poll: \(view.status ?? "?")"
                         }
                         self.route(polled: view)
                     }
                     if isPollTerminal(view.status) {
-                        DiagLogger.shared.log("POLL", "到达终态/决策点，停轮询 task=\(taskId)")
+                        DiagLogger.shared.log("POLL", "terminal/decision reached, stop polling task=\(taskId)")
                         return
                     }
                 } catch {
                     failCount += 1
-                    DiagLogger.shared.log("POLL", "轮询第\(failCount)次失败: \(error.localizedDescription)")
+                    DiagLogger.shared.log("POLL", "poll attempt \(failCount) failed: \(error.localizedDescription)")
                     await MainActor.run {
-                        self.diagLine = "轮询失败x\(failCount): \(error.localizedDescription)"
+                        self.diagLine = "poll failed x\(failCount): \(error.localizedDescription)"
                     }
                 }
                 try? await Task.sleep(nanoseconds: 900_000_000)
@@ -425,55 +425,56 @@ final class AppModel: ObservableObject {
     @MainActor
     private func route(polled view: TaskView) {
         guard let id = currentTaskId, id == view.taskId else {
-            DiagLogger.shared.log("ROUTE", "跳过轮询: taskId 不匹配 current=\(currentTaskId ?? "-") polled=\(view.taskId ?? "-")")
+            DiagLogger.shared.log("ROUTE", "skip poll: taskId mismatch current=\(currentTaskId ?? "-") polled=\(view.taskId ?? "-")")
             return
         }
         currentView = view
         switch view.status {
         case "running":
-            DiagLogger.shared.log("ROUTE", "running → 继续轮询")
+            DiagLogger.shared.log("ROUTE", "running -> keep polling")
             harnessState = .busy
             syncRole(VSLogic.roleForStatus(view.status))
             applyExecProgress(forStatus: view.status)
         case "need_ask", "need_confirm":
-            DiagLogger.shared.log("ROUTE", "\(view.status) → 渲染决策点 question=\(view.question ?? "-") options=\(view.options?.count ?? 0)")
+            DiagLogger.shared.log("ROUTE", "\(view.status) -> render decision question=\(view.question ?? "-") options=\(view.options?.count ?? 0)")
             stopPolling()
             applyExecProgress(forStatus: view.status)
             closeExecCard()
-            // UI v3：等待确认/选择 → 顶栏状态点 decision（橙）。
+            // UI v3: waiting for confirm/select -> top-bar dot decision (orange).
             harnessState = .decision
             decision = VSLogic.nextDecisionPoint(view)
-            // T3 豆包式：需要用户确认/选择时朗读问题（不看屏也能应答）。
+            // T3 Doubao-style: speak the question when the user must confirm/select (answer without looking).
             if let q = view.question, !q.isEmpty {
                 speak(q)
             }
             DiagLogger.shared.log("ROUTE", "decision.kind=\(String(describing: decision?.kind)) options=\(decision?.options.count ?? 0)")
         case "done":
-            DiagLogger.shared.log("ROUTE", "done → 回执")
+            DiagLogger.shared.log("ROUTE", "done -> receipt")
             stopPolling()
             sseTask?.cancel()
-            // UI v3：任务完成 → 顶栏状态点回 idle（灰）。
+            // UI v3: task done -> top-bar dot back to idle (gray).
             harnessState = .idle
             syncRole(VSLogic.roleForStatus(view.status))
             closeExecCard()
             decision = nil
             renderReceipt(view)
-            // 兜底：QUERY 等无四行 receipt 的任务，receipt 卡可能为空 → 补一条可见完成气泡，杜绝"done 了但界面无反应"。
+            // Fallback: for tasks like QUERY with no four-line receipt the receipt card may be empty -> append a visible
+            // completion bubble so there is never a "done but nothing on screen".
             if view.receipt == nil || view.receipt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-                let text = view.question?.isEmpty == false ? "完成：\(view.question!)" : "完成（server 已返回 done）"
+                let text = view.question?.isEmpty == false ? "Done: \(view.question!)" : "Done (server returned done)"
                 appendHarness(text, view: view, spoken: true)
             }
         case "canceled", "interrupted":
-            DiagLogger.shared.log("ROUTE", "\(view.status) → 错误条")
+            DiagLogger.shared.log("ROUTE", "\(view.status) -> error bar")
             stopPolling()
             closeExecCard()
-            // UI v3：任务终止 → 顶栏状态点回 idle（灰）。
+            // UI v3: task ended -> top-bar dot back to idle (gray).
             harnessState = .idle
             if systemBar == nil {
                 decision = VSLogic.nextDecisionPoint(view)
             }
         default:
-            DiagLogger.shared.log("ROUTE", "未知 status=\(view.status ?? "nil") → 无动作（吞掉？）")
+            DiagLogger.shared.log("ROUTE", "unknown status=\(view.status ?? "nil") -> no action (swallowed?)")
             break
         }
     }
@@ -483,7 +484,7 @@ final class AppModel: ObservableObject {
         pollTask = nil
     }
 
-    /// P2：按状态词推进执行卡（need_ask/confirm→确认闸；done→全✓）。
+    /// P2: advance the exec card by status (need_ask/confirm -> confirm gate; done -> all checks).
     private func applyExecProgress(forStatus status: String?) {
         let (doneCount, _) = VSLogic.execProgress(forStatus: status)
         guard doneCount > 0 else { return }
@@ -498,14 +499,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// SSE 连续失败计数（T2：指数退避 + 上限，杜绝无限"重连中"刷屏）。
+    /// SSE consecutive-failure count (T2: exponential backoff + cap, to avoid infinite "reconnecting" spam).
     private var reconnectFailures = 0
 
     private func openSSE(taskId: String) {
         sseTask?.cancel()
         reconnectFailures = 0
         sseTask = Task {
-            // 简单重连循环：未到终态则按 after=lastSeq 重连。
+            // Simple reconnect loop: if not terminal, reconnect with after=lastSeq.
             while !Task.isCancelled {
                 do {
                     let stream = sse.events(taskId: taskId, after: lastSeq)
@@ -517,15 +518,15 @@ final class AppModel: ObservableObject {
                             return
                         }
                     }
-                    return // 流正常结束（终态已处理）
+                    return // stream ended normally (terminal handled)
                 } catch {
-                    // T2：指数退避重连（0.8s→1.6s→…上限 4s），连续失败 5 次后停止。
-                    // v2.2 修复（用户反馈"根本啥也没有"）：重连提示**不再进对话流**——
-                    // 只在诊断日志留痕，顶部胶囊由 ConnectivityService 实时反映，避免刷屏顶掉回复。
+                    // T2: exponential backoff reconnect (0.8s->1.6s->... capped at 4s); stop after 5 consecutive failures.
+                    // v2.2 fix (user reported "nothing at all"): reconnect notices no longer enter the chat flow —
+                    // they are only logged; the top pill reflects ConnectivityService live, avoiding spam over replies.
                     reconnectFailures += 1
-                    DiagLogger.shared.log("SSE", "重连中 failures=\(reconnectFailures) err=\(error.localizedDescription)")
+                    DiagLogger.shared.log("SSE", "reconnecting failures=\(reconnectFailures) err=\(error.localizedDescription)")
                     if reconnectFailures >= 5 {
-                        DiagLogger.shared.log("SSE", "重连失败5次停止，task=\(taskId)")
+                        DiagLogger.shared.log("SSE", "stopping after 5 reconnect failures, task=\(taskId)")
                         stopPolling()
                         return
                     }
@@ -548,7 +549,7 @@ final class AppModel: ObservableObject {
                                    question: question, options: options)
             closeExecCard()
             decision = VSLogic.nextDecisionPoint(currentView!)
-            // T1：后台/锁屏时本地通知提醒（前台由 UI 呈现）。
+            // T1: local notification when backgrounded/locked (foreground is handled by the UI).
             NotificationService.shared.routeEvent("need_ask", taskId: taskId, seq: 0,
                                                   payload: ["question": question ?? ""])
 
@@ -573,12 +574,12 @@ final class AppModel: ObservableObject {
         case .failed(_, let error):
             currentView = TaskView(taskId: taskId, status: "canceled", error: error)
             closeExecCard()
-            decision = DecisionPoint(kind: .error, message: error ?? "执行失败")
+            decision = DecisionPoint(kind: .error, message: error ?? "Execution failed")
             NotificationService.shared.routeEvent("failed", taskId: taskId, seq: 0,
                                                   payload: ["error": error ?? ""])
 
         case .interrupt(_, let applied, let notApplied, _):
-            // 三语义 → 红色系统条（已生效/未执行/可撤销）。
+            // Three semantics -> red system bar (applied / not executed / undoable).
             var base = VSLogic.interruptSystemBar(currentView)
             if !applied.isEmpty { base.active = applied }
             if !notApplied.isEmpty { base.blocked = notApplied }
@@ -588,7 +589,7 @@ final class AppModel: ObservableObject {
             currentView = TaskView(taskId: taskId, status: "canceled")
             closeExecCard()
             if systemBar == nil {
-                decision = DecisionPoint(kind: .error, message: "任务被取消")
+                decision = DecisionPoint(kind: .error, message: "Task canceled")
             }
             NotificationService.shared.routeEvent("canceled", taskId: taskId, seq: 0, payload: [:])
 
@@ -597,52 +598,52 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - 应答 / 续跑
+    // MARK: - Answer / resume
 
     func answer(_ ans: String) {
         guard let id = currentTaskId else { return }
         decision = nil
-        // UI v3：应答后任务续跑 → 顶栏状态点 busy（蓝）。
+        // UI v3: after answering the task resumes -> top-bar dot busy (blue).
         harnessState = .busy
         Task {
             do {
                 try await api.answer(id, ans)
                 ensureExecCard()
-                startFlow(taskId: id)   // need_ask 续跑 / need_confirm 放行后续跑
+                startFlow(taskId: id)   // resume after need_ask / need_confirm approval
             } catch {
-                appendHarness("应答失败：\(error.localizedDescription)", view: TaskView(status: "canceled"))
+                appendHarness("Answer failed: \(error.localizedDescription)", view: TaskView(status: "canceled"))
             }
         }
     }
 
-    // MARK: - 撤销（rollback）
+    // MARK: - Undo (rollback)
 
     func rollback() {
         guard let id = currentTaskId else { return }
         Task {
             do {
                 let restored = try await api.rollback(id)
-                appendHarness("已撤销：\(restored ?? "已恢复")",
+                appendHarness("Undone: \(restored ?? "restored")",
                               view: TaskView(status: "done", reversible: false))
             } catch {
-                appendHarness("撤销失败：\(error.localizedDescription)",
+                appendHarness("Undo failed: \(error.localizedDescription)",
                               view: TaskView(status: "canceled"))
             }
         }
     }
 
-    // MARK: - 打断：说"停" → 红色系统条
+    // MARK: - Interrupt: say "stop" -> red system bar
     //
     /**
-     * 【伪代码逻辑层】（必写：停止→已生效/未执行/可继续或撤销）
+     * 【Pseudocode logic layer】(required: stop -> applied / not executed / continue-or-undo)
      *   maybeInterrupt(taskId, view):
      *     1. systemBar = VSLogic.interruptSystemBar(view)
-     *        — active: 已生效（有 receipt 列动作，否则"尚未变更"）
-     *        — blocked: 未执行（后续阶段中止）
-     *        — actions: ['撤销'(若可逆), '继续']
-     *     2. POST /v1/tasks/{taskId}/cancel 真正停（404/405 回退 legacy /v1/cancel）
-     *     3. SSE interrupt 事件到达后刷新 systemBar 三语义
-     *     异常：cancel 端点失败 → 仅显示系统条，不阻塞用户。
+     *        - active: applied (list the action if a receipt exists, else "no changes yet")
+     *        - blocked: not executed (later stages aborted)
+     *        - actions: ['Undo' (if reversible), 'Continue']
+     *     2. POST /v1/tasks/{taskId}/cancel to really stop (404/405 falls back to legacy /v1/cancel)
+     *     3. when the SSE interrupt event arrives, refresh the system bar's three semantics
+     *     Edge: cancel endpoint fails -> show only the system bar, do not block the user.
      */
     private func maybeInterrupt(taskId: String, view: TaskView) {
         systemBar = VSLogic.interruptSystemBar(view)
@@ -652,17 +653,17 @@ final class AppModel: ObservableObject {
             do {
                 try await api.cancel(taskId)
             } catch {
-                // 仅 UI 条，不阻塞用户
+                // UI bar only; do not block the user
             }
         }
     }
 
     func closeSystemBar() { systemBar = nil }
 
-    // MARK: - 角色折叠
+    // MARK: - Role bar
 
     private func syncRole(_ statusOrRole: String) {
-        // stage 事件直接给 role；状态词则经 roleForStatus 裁决。
+        // stage events carry role directly; status words are resolved via roleForStatus.
         let roleId: String
         if ["planner", "executor", "verifier"].contains(statusOrRole) {
             roleId = statusOrRole
@@ -673,21 +674,21 @@ final class AppModel: ObservableObject {
         for i in roles.indices { roles[i].active = (roles[i].id == roleId) }
     }
 
-    // MARK: - 设置页
+    // MARK: - Settings
 
     func testConnection() {
-        statusLine = "连接中…"
+        statusLine = "Connecting…"
         Task {
             do {
                 let s = try await api.status()
                 statusLine = "OK · v\(s.version ?? "?") · tasks=\(s.tasks ?? -1)"
             } catch {
-                statusLine = "失败：\(error.localizedDescription)"
+                statusLine = "Failed: \(error.localizedDescription)"
             }
         }
     }
 
-    // MARK: - 对话流渲染助手
+    // MARK: - Chat flow rendering helpers
 
     private func appendUser(_ text: String, fromVoice: Bool, attachments: [Attachment] = []) {
         autoNameIfNeeded(text)
@@ -701,23 +702,23 @@ final class AppModel: ObservableObject {
         scrollTick += 1
     }
 
-    /// V6.2 自动命名：当前会话还是默认名（"新会话"/空）时，用首条用户内容生成标题。
-    /// 本地规则（VSLogic.autoTitle）：取内容前 12 字 + "…"；后续 harness 可用后升级 AI 命名。
+    /// V6.2 auto-naming: if the current session still has the default title ("New Chat"/empty),
+    /// generate a title from the first user message. Local rule (VSLogic.autoTitle): first 12 chars + '…'.
     private func autoNameIfNeeded(_ text: String) {
         guard let s = SessionStore.shared.currentSession,
-              s.title == "新会话" || s.title.isEmpty else { return }
+              s.title == "New Chat" || s.title.isEmpty else { return }
         let name = VSLogic.autoTitle(from: text)
         SessionStore.shared.renameSession(id: s.id, title: name)
     }
 
-    /// T3 豆包式：Harness 的"真回复"（完成/回执/决策点）朗读；系统提示不读。
-    /// v2.1 自适应朗读（先进理念3）：短文本全文读；长文本读摘要+提示看屏（治 EC 推演的 TTS 瓶颈）。
+    /// T3 Doubao-style: speak the harness's "real reply" (completion/receipt/decision); system hints are not spoken.
+    /// v2.1 adaptive speech: short text read fully; long text reads a summary + 'see screen' hint.
     private func speak(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         if t.count > 80 {
             let head = String(t.prefix(80))
-            VoiceOutputService.shared.speak(head + "。内容较长，详情可以看屏幕。")
+            VoiceOutputService.shared.speak(head + ". This is long; see the screen for details.")
         } else {
             VoiceOutputService.shared.speak(t)
         }
@@ -731,30 +732,30 @@ final class AppModel: ObservableObject {
 
     private func removeTyping() {
         longTaskTimer?.cancel()
-        typingText = "正在思考…"
+        typingText = "Thinking…"
         rows.removeAll {
             if case .typing = $0 { return true }
             return false
         }
     }
 
-    // MARK: - v2.1 I18 长任务提示升级（5s → 10s）
+    // MARK: - v2.1 I18 long-task hint escalation (5s -> 10s)
 
-    /// 思考态动态文案（TypingView 显示）。
-    @Published var typingText = "正在思考…"
+    /// Dynamic thinking-state text (shown by TypingView).
+    @Published var typingText = "Thinking…"
     private var longTaskTimer: Task<Void, Never>?
 
-    /// 提交后启动：5s 升级"还在思考，马上好…"，10s 改"任务比较久，完成了我通知你"（通知兜底由后台完成）。
+    /// Starts after submit: at 5s escalate to "Still thinking, almost there…"; at 10s to "This is taking a while; I'll notify you when done" (notification fallback handled in background).
     private func armLongTaskTimers() {
         longTaskTimer?.cancel()
-        typingText = "正在思考…"
+        typingText = "Thinking…"
         longTaskTimer = Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self.typingText = "还在思考，马上好…" }
+            await MainActor.run { self.typingText = "Still thinking, almost there…" }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self.typingText = "任务比较久，完成了我通知你" }
+            await MainActor.run { self.typingText = "This is taking a while; I will notify you when done" }
         }
     }
 
@@ -765,7 +766,7 @@ final class AppModel: ObservableObject {
         rows.append(.execCard(state))
     }
 
-    /// 收到 stage step 名 → 把该阶段点亮并把此前的标 done（P2 逐项高亮）。
+    /// On a stage step name: light that stage and mark the previous ones done (P2 item-by-item highlight).
     private func advanceExec(toStage step: String) {
         guard let idx = VSLogic.execIndex(ofStep: step) else { return }
         for i in rows.indices {
@@ -781,10 +782,10 @@ final class AppModel: ObservableObject {
 
     private func closeExecCard() {
         longTaskTimer?.cancel()
-        typingText = "正在思考…"
+        typingText = "Thinking…"
         execCardRowId = nil
-        // v2.2 修复：终态到达时删除 rows 里残留的 execCard/typing 中间态气泡，
-        // 只留"用户气泡 + 最终回复"（豆包式干净对话流，不再一轮轮堆积"正在思考"）。
+        // v2.2 fix: when a terminal state arrives, remove residual execCard/typing intermediate bubbles from rows,
+        // keeping only "user bubble + final reply" (a clean Doubao-style chat flow, no stacking "Thinking" each turn).
         rows.removeAll {
             if case .execCard = $0 { return true }
             if case .typing = $0 { return true }
@@ -796,18 +797,18 @@ final class AppModel: ObservableObject {
         let dp = VSLogic.nextDecisionPoint(view)
         guard dp.kind == .receipt else { return }
         var receipt = dp.receipt
-        // v2.3（用户需求：微信式"已处理 X 秒"）：记录本轮耗时，气泡上方显示。
+        // v2.3 (user request: WeChat-style "Processed in Xs"): record this turn's duration above the bubble.
         receipt.elapsedSec = Date().timeIntervalSince(lastSubmitAt)
         rows.append(.receipt(ReceiptRow(receipt: receipt,
                                         undo: dp.undo,
                                         badges: VSLogic.compressBadges(view))))
         scrollTick += 1
-        // T3 豆包式：朗读回复内容（v2.3 去"已完成，动作。"前缀，用户原话：已完成什么东西）。
+        // T3 Doubao-style: speak the reply content (v2.3 drops the "Done, action." prefix).
         let summary = receipt.result
         speak(summary)
     }
 
-    // MARK: - v2.4 附件（资料）
+    // MARK: - v2.4 attachments
 
     func addAttachment(_ a: Attachment) {
         pendingAttachments.append(a)
@@ -817,14 +818,14 @@ final class AppModel: ObservableObject {
         pendingAttachments.removeAll { $0.id == id }
     }
 
-    /// 兼容重载：视图层以附件对象形式调用 removeAttachment(_:)。
+    /// Compatibility overload: the view layer calls removeAttachment(_:) with an Attachment.
     func removeAttachment(_ a: Attachment) {
         pendingAttachments.removeAll { $0.id == a.id }
     }
 
-    // MARK: - v2.4 多会话切换
+    // MARK: - v2.4 multi-session switching
 
-    /// 切到指定会话：先把当前 rows 回写原会话 → switchTo → 加载新会话 rows → 清理中间态。
+    /// Switch to a session: persist current rows back -> switchTo -> load the new session's rows -> clear transient state.
     func switchSession(_ id: String) {
         guard id != currentSessionID else { return }
         persistCurrentRows()
@@ -834,21 +835,21 @@ final class AppModel: ObservableObject {
         resetTransientState()
     }
 
-    /// 新会话：先保存当前会话 → createSession → 加载空 rows → 清理中间态。
+    /// New session: save the current session -> createSession -> load empty rows -> clear transient state.
     func newSession() {
         persistCurrentRows()
-        let s = SessionStore.shared.createSession(title: "新会话")
+        let s = SessionStore.shared.createSession(title: "New Chat")
         currentSessionID = s.id
         loadCurrentRows()
         resetTransientState()
     }
 
-    // MARK: - V6.2 角色/域容器会话
+    // MARK: - V6.2 role/domain container sessions
 
-    /// 进入某容器的新会话（在角色中新建 / 在域中新建）。
+    /// Start a new session inside a container (new in a role / new in a domain).
     func enterContainerSession(kind: ContainerKind, containerID: String) {
         persistCurrentRows()
-        let s = SessionStore.shared.createSession(title: "新会话",
+        let s = SessionStore.shared.createSession(title: "New Chat",
                                                   containerKind: kind,
                                                   containerID: containerID)
         currentSessionID = s.id
@@ -856,57 +857,57 @@ final class AppModel: ObservableObject {
         resetTransientState()
     }
 
-    /// 创建（或复用同名）容器并进入其新会话。
+    /// Create (or reuse a same-named) container and enter its new session.
     func createContainerAndEnter(kind: ContainerKind, name: String) {
         let c = SessionStore.shared.upsertContainer(kind: kind, name: name)
         enterContainerSession(kind: kind, containerID: c.id)
     }
 
-    /// V6.3 先聊后归：把已有会话归入容器（角色/域）。
+    /// V6.3 talk-then-file: file an existing session into a container (role/domain).
     func classifySession(_ id: String, kind: ContainerKind, containerID: String) {
         SessionStore.shared.setContainer(sessionID: id, kind: kind, containerID: containerID)
     }
 
-    /// 新建（或复用同名）容器并把会话归入。
+    /// Create (or reuse a same-named) container and file the session into it.
     func createContainerAndClassify(_ id: String, kind: ContainerKind, name: String) {
         let c = SessionStore.shared.upsertContainer(kind: kind, name: name)
         classifySession(id, kind: kind, containerID: c.id)
     }
 
-    /// 移回未分组。
+    /// Move back to ungrouped.
     func unclassifySession(_ id: String) {
         SessionStore.shared.clearContainer(sessionID: id)
     }
 
-    /// V6.3 顶栏归属标签：当前会话所属容器名（无 → 未分组）。
+    /// V6.3 top-bar ownership label: the container name of the current session (none -> Ungrouped).
     var currentContainerLabel: String {
         guard let s = SessionStore.shared.currentSession,
               let cid = s.containerID,
               let c = SessionStore.shared.containers.first(where: { $0.id == cid }) else {
-            return "未分组"
+            return "Ungrouped"
         }
         return c.name
     }
 
-    /// V6.3 机器名 = 实际连接目标：
-    /// - online：连的是谁显示谁（自建=服务器名；无自建/云道=「VoxSign 云端」，云端为默认主机）
-    /// - 非 online（offline/reconnecting/unknown）：显示「未连接」（与红点、禁用输入一致）
+    /// V6.3 machine name = the actual connection target:
+    /// - online: show whoever you are connected to (self-hosted = server name; cloud = 'VoxSign Cloud', the default host)
+    /// - not online (offline/reconnecting/unknown): show 'Offline' (consistent with the red dot and disabled input)
     func refreshMachineLabel() {
         let store = SettingsStore.shared
         let conn = ConnectivityService.shared.state
         switch conn {
         case .online:
             if store.mode == .selfHosted, let cfg = store.activeServerConfig {
-                machineLabel = cfg.name.isEmpty ? "未命名服务器" : cfg.name
+                machineLabel = cfg.name.isEmpty ? "Unnamed server" : cfg.name
             } else {
-                machineLabel = "VoxSign 云端"
+                machineLabel = "VoxSign Cloud"
             }
         case .offline, .reconnecting, .unknown:
-            machineLabel = "未连接"
+            machineLabel = "Offline"
         }
     }
 
-    /// 删除会话：先保存当前 rows；删后若删的是当前会话则切到剩余第一个并加载。
+    /// Delete a session: persist current rows first; if the deleted session was current, switch to the first remaining and load it.
     @discardableResult
     func deleteSession(_ id: String) -> Bool {
         persistCurrentRows()
@@ -918,20 +919,20 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    // MARK: - v2.4 会话内部辅助
+    // MARK: - v2.4 session internals
 
-    /// 把当前对话流 rows 回写到当前会话。
+    /// Persist the current chat rows back to the current session.
     private func persistCurrentRows() {
         guard !currentSessionID.isEmpty else { return }
         SessionStore.shared.saveMessages(Self.rowsToMessages(rows), for: currentSessionID)
     }
 
-    /// 按当前 currentSessionID 从仓库加载对话流 rows。
+    /// Load chat rows from the store for the current currentSessionID.
     private func loadCurrentRows() {
         rows = Self.messagesToRows(SessionStore.shared.loadMessages(for: currentSessionID))
     }
 
-    /// 切/删/新建会话后清理中间态（决策点/系统条/附件/输入/进行中任务）。
+    /// Clear transient state after switching/deleting/creating a session (decision/system bar/attachments/input/running task).
     private func resetTransientState() {
         decision = nil
         systemBar = nil
@@ -948,9 +949,9 @@ final class AppModel: ObservableObject {
         scrollTick += 1
     }
 
-    // MARK: - ChatRow ↔ StoredMessage 转换
+    // MARK: - ChatRow <-> StoredMessage conversion
 
-    /// rows → 可持久化消息（typing/execCard 不持久化；回执行→harness 文本，undo 不持久化）。
+    /// rows -> persistable messages (typing/execCard are not persisted; receipt rows -> harness text; undo is not persisted).
     static func rowsToMessages(_ rows: [ChatRow]) -> [StoredMessage] {
         rows.compactMap { row -> StoredMessage? in
             switch row {
@@ -971,7 +972,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 持久化消息 → rows（user 还原气泡含附件/语音；harness 还原徽章/token/时间）。
+    /// Persisted messages -> rows (user restores bubble with attachments/voice; harness restores badges/tokens/time).
     static func messagesToRows(_ messages: [StoredMessage]) -> [ChatRow] {
         messages.map { m -> ChatRow in
             switch m.role {
@@ -981,7 +982,7 @@ final class AppModel: ObservableObject {
                 b.timestamp = m.timestamp
                 return .user(b)
             default:
-                // harness 消息（含回执结果文本）：还原为普通 harness 气泡。
+                // harness message (including receipt result text): restore as a normal harness bubble.
                 var b = Bubble(text: m.text, badges: m.badges, attachments: m.attachments)
                 b.costTokens = m.costTokens
                 b.timestamp = m.timestamp

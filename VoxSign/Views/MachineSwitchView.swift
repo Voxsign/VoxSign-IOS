@@ -2,10 +2,10 @@
 //  MachineSwitchView.swift
 //  VoxSign
 //
-//  V6.1 机器切换面板（点顶栏机器名打开）：
-//  - 云道（默认）：零配置，点击即切换
-//  - 自建服务器列表：点击切换（机器码/直连/云端转发均可）
-//  - 右上「管理」→ 设置页（添加/管理服务器）
+//  V6.1 machine switch panel (tap the top-bar machine name to open):
+//  - Cloud (default): zero-config, tap to switch
+//  - Self-hosted server list: tap to switch (machine code / direct connect / cloud relay all supported)
+//  - Top-right "Manage" -> Settings (add / manage servers)
 //
 
 import SwiftUI
@@ -17,14 +17,14 @@ struct MachinePickerView: View {
     var body: some View {
         NavigationStack {
             List {
-                // 云端（默认）
+                // Cloud (default)
                 Section {
                     Button {
                         SettingsStore.shared.setMode(.cloud)
                         dismiss()
                     } label: {
                         HStack {
-                            Label("VoxSign 云端", systemImage: "cloud")
+                            Label(NSLocalizedString("VoxSign Cloud", comment: ""), systemImage: "cloud")
                                 .font(.system(size: 15))
                             Spacer()
                             if ConnectivityService.shared.state == .online
@@ -36,15 +36,15 @@ struct MachinePickerView: View {
                         }
                     }
                 } header: {
-                    Text("云端")
+                    Text(NSLocalizedString("Cloud", comment: ""))
                 } footer: {
-                    Text("零配置，走 VoxSign 云端服务。")
+                    Text(NSLocalizedString("Zero-config; uses the VoxSign cloud service.", comment: ""))
                 }
 
-                // 自建机器
+                // Self-hosted machines
                 Section {
                     if SettingsStore.shared.servers.isEmpty {
-                        Text("暂无自建机器，点右上「管理」添加")
+                        Text(NSLocalizedString("No self-hosted machines; tap \"Manage\" in the top-right to add one", comment: ""))
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     } else {
@@ -56,7 +56,7 @@ struct MachinePickerView: View {
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(s.name.isEmpty ? "未命名机器" : s.name)
+                                        Text(s.name.isEmpty ? NSLocalizedString("Unnamed server", comment: "") : s.name)
                                             .font(.system(size: 15))
                                             .foregroundColor(.primary)
                                         Text(s.base)
@@ -77,10 +77,10 @@ struct MachinePickerView: View {
                         }
                     }
                 } header: {
-                    Text("自建机器")
+                    Text(NSLocalizedString("Self-hosted", comment: ""))
                 }
             }
-            .navigationTitle("选择机器")
+            .navigationTitle(NSLocalizedString("Choose machine", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -88,7 +88,7 @@ struct MachinePickerView: View {
                         dismiss()
                         model.showSettings = true
                     } label: {
-                        Label("管理", systemImage: "gearshape")
+                        Label(NSLocalizedString("Manage", comment: ""), systemImage: "gearshape")
                     }
                 }
             }

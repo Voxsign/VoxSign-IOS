@@ -2,7 +2,8 @@
 //  CostTextTests.swift
 //  VoxSignTests
 //
-//  消耗用量文案纯函数单测：服务端不回传（nil）时隐藏；回传时格式化 "消耗 n"。
+//  Pure-function tests for the usage caption: hidden when the server returns nil;
+//  otherwise formatted as "Used n".
 //
 
 import XCTest
@@ -10,23 +11,23 @@ import XCTest
 
 final class CostTextTests: XCTestCase {
 
-    // 服务端不回传（nil）→ 整行隐藏。
+    // Server returns nil -> whole row hidden.
     func testNilHidesRow() {
         XCTAssertNil(CostText.caption(for: nil))
     }
 
-    // 0 也如实显示（回传 0 token）。
+    // 0 is shown as-is (server reports 0 tokens).
     func testZeroFormatted() {
-        XCTAssertEqual(CostText.caption(for: 0), "消耗 0")
+        XCTAssertEqual(CostText.caption(for: 0), "Used 0")
     }
 
-    // 常规用量。
+    // Typical usage.
     func testTypicalTokens() {
-        XCTAssertEqual(CostText.caption(for: 123), "消耗 123")
+        XCTAssertEqual(CostText.caption(for: 123), "Used 123")
     }
 
-    // 大批量用量数字。
+    // Large token count.
     func testLargeTokens() {
-        XCTAssertEqual(CostText.caption(for: 987654), "消耗 987654")
+        XCTAssertEqual(CostText.caption(for: 987654), "Used 987654")
     }
 }

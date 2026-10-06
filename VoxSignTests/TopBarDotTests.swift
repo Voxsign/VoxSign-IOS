@@ -2,7 +2,7 @@
 //  TopBarDotTests.swift
 //  VoxSignTests
 //
-//  v2.4 顶栏状态点纯函数单测：连接态 × harness 态全组合映射。
+//  v2.4 top-bar status-dot pure-function tests: all connection-state x harness-state mappings.
 //
 
 import XCTest
@@ -10,25 +10,25 @@ import XCTest
 
 final class TopBarDotTests: XCTestCase {
 
-    // offline 恒红（不论 harness 态）。
+    // offline is always red (regardless of harness state).
     func testOfflineAlwaysRed() {
         XCTAssertEqual(TopBarDot.tone(conn: .offline, harness: .idle), .red)
         XCTAssertEqual(TopBarDot.tone(conn: .offline, harness: .busy), .red)
         XCTAssertEqual(TopBarDot.tone(conn: .offline, harness: .decision), .red)
     }
 
-    // online：decision → 橙。
+    // online: decision -> orange.
     func testOnlineDecisionOrange() {
         XCTAssertEqual(TopBarDot.tone(conn: .online, harness: .decision), .orange)
     }
 
-    // online：busy / idle → 蓝。
+    // online: busy / idle -> blue.
     func testOnlineBusyAndIdleBlue() {
         XCTAssertEqual(TopBarDot.tone(conn: .online, harness: .busy), .blue)
         XCTAssertEqual(TopBarDot.tone(conn: .online, harness: .idle), .blue)
     }
 
-    // reconnecting / unknown → 灰（不论 harness 态）。
+    // reconnecting / unknown -> gray (regardless of harness state).
     func testReconnectingAndUnknownGray() {
         for conn: ConnectionState in [.reconnecting, .unknown] {
             XCTAssertEqual(TopBarDot.tone(conn: conn, harness: .idle), .gray)

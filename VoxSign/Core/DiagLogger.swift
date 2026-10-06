@@ -2,9 +2,9 @@
 //  DiagLogger.swift
 //  VoxSign
 //
-//  App 端结构化诊断日志：OSLog（subsystem com.voicesign）+ 本地文件
-//  Caches/VoxSign/diag-<日期>.log（可导出）。覆盖：请求/轮询/SSE/状态转换/UI 渲染分支决策。
-//  零第三方依赖。
+//  App-side structured diagnostic log: OSLog (subsystem com.voicesign) plus a local file
+//  Caches/VoxSign/diag-<date>.log (exportable). Covers: request/poll/SSE/state transitions/
+//  UI routing decisions. Zero third-party dependencies.
 //
 
 import Foundation
@@ -41,7 +41,7 @@ final class DiagLogger {
         try? fileHandle?.seekToEnd()
     }
 
-    /// 打一条：同时进 OSLog 与本地文件。tag 如 "POLL"/"SSE"/"ROUTE"/"UI"/"NET"。
+    /// Log one entry to both OSLog and the local file. Tag e.g. "POLL"/"SSE"/"ROUTE"/"UI"/"NET".
     func log(_ tag: String, _ message: String) {
         let line = "[\(dateFmt.string(from: Date()))] [\(tag)] \(message)\n"
         os_log("%{public}@", log: log, type: .info, line)

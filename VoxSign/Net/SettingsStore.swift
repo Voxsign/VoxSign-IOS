@@ -2,37 +2,38 @@
 //  SettingsStore.swift
 //  VoxSign
 //
-//  豆包式设置（T3）：双连接模式——
-//  - 云道（默认）：零配置，仅 Google 登录；base/token 指向 VoxSign 云端（与服务器列表无关）。
-//  - 自建：默认空列表，用户自己添加服务器（IP 地址 / 机器码 两种方式）；
-//    条目记录绑定方式与连接方式（直连 / 云端转发）。
-//  下游（APIClient/SSEClient）继续用 base/token 计算属性，无需改动。
+//  Settings (T3): dual connection modes --
+//  - Cloud (default): zero config, Google sign-in only; base/token point at the VoxSign cloud
+//    (independent of the server list).
+//  - Self-hosted: empty list by default; the user adds servers (IP address / machine code);
+//    each entry records its binding and connection method (direct / cloud relay).
+//  Downstream (APIClient/SSEClient) keeps using the base/token computed properties, no change needed.
 //
 
 import Foundation
 
-/// 连接模式：云道（默认）/ 自建。
+/// Connection mode: cloud (default) / self-hosted.
 enum ConnectionMode: String, Codable, CaseIterable {
-    case cloud        // 云道 · 默认：Google 登录即用，零配置
-    case selfHosted   // 自建：自己添加服务器
+    case cloud        // cloud · default: sign in with Google, zero config
+    case selfHosted   // self-hosted: add your own server
 }
 
-/// 一台可连接的 Harness 服务器（自建）。
+/// A connectable Harness server (self-hosted).
 struct ServerConfig: Identifiable, Codable, Equatable {
     var id: String
     var name: String
     var base: String
     var token: String
-    /// 机器码绑定（非 nil = 通过机器码添加，地址由云道定位带入）。
+    /// Machine-code binding (non-nil = added via machine code; address comes from cloud lookup).
     var machineCode: String?
-    /// 云端转发（内网服务器经云道中转；nil = 直连）。
+    /// Cloud relay (intranet server relayed via the cloud; nil = direct).
     var viaRelay: Bool?
 
     var isMachineBound: Bool { machineCode != nil }
     var usesRelay: Bool { viaRelay ?? false }
 }
 
-/// Google 登录态（云道模式：租户 = Google sub）。
+/// Google sign-in state (cloud mode: tenant = Google sub).
 struct GoogleAuthState: Codable, Equatable {
     var email: String
     var tenant: String
@@ -41,13 +42,13 @@ struct GoogleAuthState: Codable, Equatable {
     var quotaLimit: Int?
     var resetsAt: String?
     var trialUntil: String?
-    /// 会话 JWT（云道模式下作为 Bearer token；老版本数据可能缺失 → optional 兼容）。
+    /// Session JWT (used as the Bearer token in cloud mode; older data may lack it -> optional for compatibility).
     var token: String?
-    /// 兼容保留（v2.1 曾记录服务器地址；云道模式不再依赖它）。
+    /// Kept for compatibility (v2.1 stored a server address; cloud mode no longer uses it).
     var serverBase: String
 }
 
-/// 观测式设置仓库：App 启动时读 UserDefaults，保存时回写。
+/// Observable settings store: reads UserDefaults on launch, writes back on save.
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
 
@@ -56,30 +57,30 @@ final class SettingsStore: ObservableObject {
     private let activeKey = "vhs-ios-active"
     private let modeKey = "vhs-ios-mode"
 
-    /// 连接模式（云道默认 / 自建），持久化。
+    /// Connection mode (cloud default / self-hosted), persisted.
     @Published var mode: ConnectionMode = .cloud
 
-    /// 自建服务器列表（默认空，用户自己添加），持久化。
-    /// 注：不挂 didSet（init 阶段赋值会触发 didSet 且此时 self 未完整初始化会编译报错），
-    /// 持久化统一在变更方法里显式 persist()。
+    /// Self-hosted server list (empty by default, user adds), persisted.
+    /// Note: no didSet attached (assigning during init would fire didSet before self is fully initialized -> compile error);
+    /// persistence happens explicitly via persist() in the mutating methods.
     @Published var servers: [ServerConfig] = []
-    /// 当前活动服务器 id（自建模式），持久化。
+    /// Active server id (self-hosted mode), persisted.
     @Published var activeServerID: String = ""
 
-    /// 云道地址（正式域名 voxsign.ai，nginx 转发 /v1 → 云端 harness 8898）。
+    /// Cloud base (production domain voxsign.ai; nginx forwards /v1 -> cloud harness 8898).
     var cloudBase: String { "https://voxsign.ai" }
 
-    /// 当前活动服务器（自建模式；云道 / 无选中 → nil）。
+    /// Active server (self-hosted mode; cloud / none selected -> nil).
     var activeServerConfig: ServerConfig? { activeServer() }
 
-    /// 当前生效的 base（下游兼容用）。
+    /// Effective base (for downstream compatibility).
     var base: String {
         switch mode {
         case .cloud: return cloudBase
         case .selfHosted: return activeServer()?.base ?? ""
         }
     }
-    /// 当前生效的 token（下游兼容用）。
+    /// Effective token (for downstream compatibility).
     var token: String {
         switch mode {
         case .cloud: return googleAuth?.token ?? ""
@@ -96,7 +97,7 @@ final class SettingsStore: ObservableObject {
            !list.isEmpty {
             servers = list
         }
-        // 自建默认空：不再预置任何服务器；老用户升级后保留原有列表。
+        // Self-hosted defaults to empty: no servers are pre-provisioned; existing users keep their list after upgrade.
         let saved = defaults.string(forKey: activeKey)
         if let saved, servers.contains(where: { $0.id == saved }) {
             activeServerID = saved
@@ -104,24 +105,24 @@ final class SettingsStore: ObservableObject {
         loadAuth()
     }
 
-    // MARK: - 模式
+    // MARK: - Mode
 
     func setMode(_ m: ConnectionMode) {
         mode = m
         defaults.set(m.rawValue, forKey: modeKey)
-        // V6.3 切换即重探：状态点与机器名必须跟随"实际连接目标"。
-        // 否则会出现"设置点了自建、实际还连云端，名字却已变"的错位。
+        // V6.3 re-probe on switch: the status dot and machine name must follow the actual connection target.
+        // Otherwise you get a mismatch: Settings says self-hosted but you are still on cloud while the name has changed.
         ConnectivityService.shared.reset()
     }
 
-    // MARK: - 自建服务器管理
+    // MARK: - Self-hosted server management
 
     func addServer(name: String, base: String, token: String,
                    machineCode: String? = nil, viaRelay: Bool = false) {
         let cfg = ServerConfig(id: UUID().uuidString, name: name, base: base, token: token,
                                machineCode: machineCode, viaRelay: viaRelay)
         servers.append(cfg)
-        activeServerID = cfg.id   // 新加的即切换过去（豆包式：添加即连接）
+        activeServerID = cfg.id   // the new one becomes active (Doubao-style: add = connect)
         persist()
     }
 
@@ -129,7 +130,7 @@ final class SettingsStore: ObservableObject {
         guard servers.contains(where: { $0.id == id }) else { return }
         activeServerID = id
         persist()
-        // v2.1 I16：切换即触发一次即时连通性探测（胶囊立即反馈，不等 30s 心跳）。
+        // v2.1 I16: switching triggers an immediate connectivity probe (pill feedback at once, no 30s heartbeat wait).
         Task { await ConnectivityService.shared.probe() }
     }
 
@@ -138,17 +139,17 @@ final class SettingsStore: ObservableObject {
         if activeServerID == id {
             activeServerID = servers.first?.id ?? ""
         }
-        // 允许删到 0 台（不再"至少保留一台"）；删空且处于自建模式时回落云道默认模式，界面自洽。
+        // Allow deleting down to 0 (no longer "keep at least one"); when empty in self-hosted mode, fall back to cloud so the UI stays consistent.
         if servers.isEmpty && mode == .selfHosted {
             setMode(.cloud)
         }
         persist()
-        // 重置探测：清掉旧服务器连接状态，立即对当前 base 重探。
+        // Reset probing: clear the old server connection state and immediately re-probe the current base.
         ConnectivityService.shared.reset()
     }
 
-    /// 解除机器码绑定：清除 machineCode（保留服务器条目与地址/token/转发方式），
-    /// 之后该服务器按普通自建服务器使用（可改名/改地址/删除）。
+    /// Unbind the machine code: clear machineCode (keep the server entry, address/token/relay),
+    /// after which the server behaves as a normal self-hosted server (rename/edit address/delete).
     func unbindMachine(_ id: String) {
         guard let idx = servers.firstIndex(where: { $0.id == id }) else { return }
         servers[idx].machineCode = nil
@@ -156,7 +157,7 @@ final class SettingsStore: ObservableObject {
         ConnectivityService.shared.reset()
     }
 
-    /// 更新当前活动服务器的地址/token（设置页编辑）。
+    /// Update the active server's address/token (Settings edit).
     func updateActive(base: String, token: String) {
         guard let idx = servers.firstIndex(where: { $0.id == activeServerID }) else { return }
         servers[idx].base = base
@@ -164,11 +165,11 @@ final class SettingsStore: ObservableObject {
         persist()
     }
 
-    // MARK: - Google 登录态（云道模式）
+    // MARK: - Google sign-in state (cloud mode)
 
     private let authKey = "vhs-ios-google-auth"
 
-    /// 登录态：租户邮箱/档位/额度/试用期 + 会话 JWT（持久化）。
+    /// Sign-in state: tenant email/tier/quota/trial + session JWT (persisted).
     @Published var googleAuth: GoogleAuthState?
 
     func setGoogleLogin(_ result: GoogleLoginResult, base: String) {
@@ -184,7 +185,7 @@ final class SettingsStore: ObservableObject {
         persistAuth()
     }
 
-    /// 用 /v1/me 结果刷新登录态（档位/额度可能变化）。
+    /// Refresh sign-in state from /v1/me (tier/quota may change).
     func refreshAuth(_ me: MeResult) {
         guard var a = googleAuth else { return }
         a.tier = me.tier
@@ -219,7 +220,7 @@ final class SettingsStore: ObservableObject {
         servers.first { $0.id == activeServerID } ?? servers.first
     }
 
-    /// 去掉末尾斜杠，拼出绝对 URL（path 以 / 开头）。
+    /// Strip trailing slashes and build an absolute URL (path starts with /).
     func url(_ path: String) -> URL? {
         let clean = base.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return URL(string: clean + path)

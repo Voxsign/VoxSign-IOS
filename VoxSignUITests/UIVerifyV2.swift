@@ -1,11 +1,11 @@
 //
-//  UIVerifyV2.swift — 临时验收辅助测试（验收方新增，非产品代码，untracked）
-//  目的：在模拟器上驱动一次真实对话，验证 AI 气泡轻量信息行
-//        「只有时间 + …菜单、无"消耗"」（服务端不回传 costTokens 场景），
-//        以及回执卡正常渲染。逐区 XCTAttachment(keepAlways) 截图。
-//  跑法：
-//   TEST_TARGET_NAME=VoxSign xcodebuild test -project ios/VoxSign.xcodeproj \
-//     -scheme VoxSign -destination 'id=EC6F72A0-C06B-45A8-89AC-5F9A8D3A9F90' \
+//  UIVerifyV2.swift — ad-hoc acceptance helper test (added by the accepting party, not product code, untracked).
+//  Purpose: drive one real chat on the simulator to verify the AI bubble light info row
+//        ("only time + … menu, no usage row") (when the server omits costTokens), and that the receipt card renders normally.
+//  Region-by-region XCTAttachment(keepAlways) screenshots.
+//  Run:
+//   TEST_TARGET_NAME=VoxSign xcodebuild test -project VoxSign.xcodeproj \
+//     -scheme VoxSign -destination 'id=<simulator-id>' \
 //     -derivedDataPath /tmp/vhs-sim-dd -resultBundlePath /tmp/vhs-v2-ui.xcresult \
 //     -only-testing:VoxSignUITests/UIVerifyV2/testChatInfoRowNoCost
 //
@@ -28,80 +28,80 @@ final class UIVerifyV2: XCTestCase {
         add(att)
     }
 
-    /// 确保自建服务器 127.0.0.1:8897 / m7-token 已配置（幂等：已存在则跳过添加）。
+    /// Ensure the self-hosted server 127.0.0.1:8897 / m7-token is configured (idempotent: skip adding if present).
     private func ensureSelfHosted() {
         let input = app.textFields["vhs.input"]
         guard input.waitForExistence(timeout: 25) else {
-            XCTFail("vhs.input 未出现")
+            XCTFail("vhs.input did not appear")
             return
         }
         app.buttons["vhs.more"].tap()
-        _ = app.buttons["设置"].waitForExistence(timeout: 5)
-        app.buttons["设置"].tap()
+        _ = app.buttons["Settings"].waitForExistence(timeout: 5)
+        app.buttons["Settings"].tap()
         sleep(1)
 
-        _ = app.buttons["自建"].waitForExistence(timeout: 5)
-        app.buttons["自建"].tap()
+        _ = app.buttons["Self-hosted"].waitForExistence(timeout: 5)
+        app.buttons["Self-hosted"].tap()
         sleep(1)
 
-        // 已配置过"本机Mac"则跳过添加。
-        let existing = app.staticTexts["本机Mac"]
+        // Skip adding if "Local Mac" was already configured.
+        let existing = app.staticTexts["Local Mac"]
         if !existing.waitForExistence(timeout: 3) {
-            _ = app.buttons["添加服务器"].waitForExistence(timeout: 5)
-            app.buttons["添加服务器"].tap()
+            _ = app.buttons["Add server"].waitForExistence(timeout: 5)
+            app.buttons["Add server"].tap()
             sleep(1)
             let ipBtn = app.buttons.containing(
-                NSPredicate(format: "label CONTAINS 'IP 地址'")
+                NSPredicate(format: "label CONTAINS 'IP address'")
             ).firstMatch
             if ipBtn.waitForExistence(timeout: 5) { ipBtn.tap() }
             sleep(1)
 
-            let nameF = app.textFields["名称（如：办公室 Mac）"]
+            let nameF = app.textFields["Name (e.g. Office Mac)"]
             let baseF = app.textFields["http://192.168.x.x:8897"]
-            let tokF = app.secureTextFields["Bearer Token（可选）"]
+            let tokF = app.secureTextFields["Bearer Token (optional)"]
             if nameF.waitForExistence(timeout: 5) {
-                nameF.tap(); nameF.typeText("本机Mac")
+                nameF.tap(); nameF.typeText("Local Mac")
                 baseF.tap(); baseF.typeText("http://127.0.0.1:8897")
                 tokF.tap(); tokF.typeText("m7-token")
             }
-            let save = app.buttons["保存并检测连接"]
+            let save = app.buttons["Save and check connection"]
             if save.waitForExistence(timeout: 5) { save.tap() }
-            _ = app.staticTexts["本机Mac"].waitForExistence(timeout: 15)
+            _ = app.staticTexts["Local Mac"].waitForExistence(timeout: 15)
             sleep(1)
         }
-        // 完成 → 回聊天
-        app.buttons["完成"].firstMatch.tap()
+        // Done -> back to chat
+        app.buttons["Done"].firstMatch.tap()
         sleep(1)
     }
 
     func testChatInfoRowNoCost() {
         let input = app.textFields["vhs.input"]
         guard input.waitForExistence(timeout: 25) else {
-            XCTFail("vhs.input 未出现")
+            XCTFail("vhs.input did not appear")
             return
         }
-        // 区1：空态/顶栏（显示名 VoxSign）+ 输入条
+        // Region 1: empty state / top bar (title VoxSign) + input bar
         sleep(1)
         shot("01-home-topbar")
 
         ensureSelfHosted()
 
-        // —— 发一条消息，等 AI 回执 ——
+        // -- Send a message and wait for the AI receipt --
         input.tap()
-        input.typeText("记一下 验收v2 消耗解耦")
+        input.typeText("jot down verify v2 cost decoupling")
         if app.buttons["vhs.send"].waitForExistence(timeout: 3) {
             app.buttons["vhs.send"].tap()
         }
-        // 回执卡：等"已完成"/"待澄清"/"撤销"任一出现
+        // Receipt card: wait for any of "Done" / "Needs Input" / "Undo"
         let done = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS '已完成' OR label CONTAINS '撤销' OR label CONTAINS '待澄清'")
+            NSPredicate(format: "label CONTAINS 'Done' OR label CONTAINS 'Undo' OR label CONTAINS 'Needs Input'")
         ).firstMatch
         _ = done.waitForExistence(timeout: 45)
         sleep(1)
-        // 区2：AI 气泡信息行（时间 + …，无"消耗"）+ 回执卡
+        // Region 2: AI bubble info row (time + …, no usage row) + receipt card
         shot("02-ai-bubble-inforow")
 
-        // —— AI 气泡「…」菜单：下半区小尺寸 ellipsis 按钮 ——
+        // -- AI bubble "…" menu: a small ellipsis button in the lower half --
         let win = app.windows.firstMatch.frame
         var bubbleEllipsis: XCUIElement?
         for b in app.buttons.allElementsBoundByIndex {
@@ -114,10 +114,10 @@ final class UIVerifyV2: XCTestCase {
         }
         bubbleEllipsis?.tap()
         sleep(1)
-        // 区3：AI 消息操作菜单（复制/朗读/分享）
+        // Region 3: AI message action menu (Copy / Speak / Share)
         shot("03-ai-bubble-menu")
-        if app.buttons["复制"].waitForExistence(timeout: 3) {
-            app.buttons["复制"].tap()
+        if app.buttons["Copy"].waitForExistence(timeout: 3) {
+            app.buttons["Copy"].tap()
         }
         sleep(1)
     }

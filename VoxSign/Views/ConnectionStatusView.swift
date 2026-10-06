@@ -2,8 +2,8 @@
 //  ConnectionStatusView.swift
 //  VoxSign
 //
-//  T2 豆包式交互·连接状态胶囊：顶部常驻一条细胶囊，
-//  绿=在线 · 黄=重连中 · 灰=离线（指令已排队）—— 网络状态对用户永远透明，不再"黑盒卡死"。
+//  T2 Doubao-style interaction · connection-status capsule: a thin pill pinned at the top,
+//  green=online · yellow=reconnecting · gray=offline (commands queued) — network state is always visible, no more "black-box freeze".
 //
 
 import SwiftUI
@@ -36,10 +36,10 @@ struct ConnectionStatusView: View {
 
     private var label: String {
         switch conn.state {
-        case .online: return "已连接"
-        case .reconnecting: return "正在重连…"
-        case .offline: return "离线 · 语音指令将自动排队"
-        case .unknown: return "连接检测中…"
+        case .online: return NSLocalizedString("Connected", comment: "")
+        case .reconnecting: return NSLocalizedString("Reconnecting…", comment: "")
+        case .offline: return NSLocalizedString("Offline · voice commands will queue", comment: "")
+        case .unknown: return NSLocalizedString("Checking connection…", comment: "")
         }
     }
 }

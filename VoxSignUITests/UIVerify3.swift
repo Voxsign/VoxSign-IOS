@@ -1,6 +1,7 @@
 //
-//  UIVerify3.swift — 临时验收辅助测试 第 3 轮（非产品代码）
-//  按住说话手势：等外部窗口后按住 mic 12s（红条由外部 simctl io 抓屏），松手后观察不崩溃。
+//  UIVerify3.swift — ad-hoc acceptance helper test, round 3 (not product code).
+//  Press-to-talk gesture: after waiting for the external window, hold the mic for 12s (the red bar is
+//  captured by an external simctl io screenshot), then release and observe that it does not crash.
 //
 
 import XCTest
@@ -17,7 +18,7 @@ final class UIVerify3: XCTestCase {
     func testPressToTalkGesture() {
         let mic = app.buttons["vhs.mic"]
         guard mic.waitForExistence(timeout: 25) else { return }
-        // 外部抓屏窗口：先睡 8s，再按住 12s（外部在中间用 simctl screenshot 抓红条）。
+        // External capture window: sleep 8s first, then hold for 12s (external simctl screenshots the red bar midway).
         sleep(8)
         mic.press(forDuration: 12)
         sleep(1)
@@ -25,19 +26,19 @@ final class UIVerify3: XCTestCase {
         att.name = "18-after-release"
         att.lifetime = .keepAlways
         add(att)
-        // 松手后不应崩溃；再观察 2s 语音状态条。
+        // Must not crash after release; observe the voice status bar for 2 more seconds.
         sleep(2)
     }
 }
 
 //
-//  V4Screenshots — 临时验收测试（非产品代码）：V4 三态截图。
-//  跑法：
+//  V4Screenshots — ad-hoc acceptance test (not product code): V4 three-state screenshots.
+//  Run:
 //   TEST_TARGET_NAME=VoxSign xcodebuild test -project VoxSign.xcodeproj \
-//     -scheme VoxSign -destination 'id=61BF6DC5-ABAA-4ED9-BEA9-0656F6A4590E' \
+//     -scheme VoxSign -destination 'id=<simulator-id>' \
 //     -derivedDataPath /tmp/vhs-v4-dd -resultBundlePath /tmp/vhs-v4-ui.xcresult \
-//     -only-testing:VoxSignUITests/V4Screenshots/<方法名>
-//  通知/麦克风弹窗为 SpringBoard 级：interruption monitor + 主动查 springboard 按钮。
+//     -only-testing:VoxSignUITests/V4Screenshots/<method>
+//  Notification / microphone alerts are SpringBoard-level: use an interruption monitor + actively poll SpringBoard buttons.
 //
 
 import XCTest
@@ -49,7 +50,7 @@ final class V4Screenshots: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        // 权限弹窗：通知点 Don't Allow、麦克风/语音识别点 Allow，均为永久决策。
+        // Permission alerts: tap "Don't Allow" on notifications, "Allow" on microphone/speech-recognition; both are permanent decisions.
         addUIInterruptionMonitor(withDescription: "Permission alert") { alert in
             if alert.buttons["Don’t Allow"].exists { alert.buttons["Don’t Allow"].tap(); return true }
             if alert.buttons["Don't Allow"].exists { alert.buttons["Don't Allow"].tap(); return true }
@@ -58,7 +59,7 @@ final class V4Screenshots: XCTestCase {
             return false
         }
         app.launch()
-        // 兜底：主动点 SpringBoard 上的弹窗按钮（interruption monitor 未触发时）。
+        // Fallback: actively tap SpringBoard alert buttons (when the interruption monitor did not fire).
         sleep(1)
         for _ in 0..<5 {
             let dont = springboard.buttons["Don’t Allow"]
@@ -79,16 +80,16 @@ final class V4Screenshots: XCTestCase {
         add(att)
     }
 
-    /// 01 空态：shell 侧已清种子并重启 cfprefsd。启动后截空态。
+    /// 01 Empty state: the shell side already cleared seeds and restarted cfprefsd. Screenshot the empty state on launch.
     func testEmptyState() {
         let input = app.descendants(matching: .any)["vhs.input"]
         guard input.waitForExistence(timeout: 25) else { return }
-        // 一次无害交互以触发 interruption monitor。
+        // One harmless interaction to trigger the interruption monitor.
         input.tap()
         shot("01-home-empty")
     }
 
-    /// 02 消息态：shell 侧已写种子会话到 App 容器 plist。启动后截消息态。
+    /// 02 Chat state: the shell side already wrote a seed session to the app container plist. Screenshot the chat state on launch.
     func testChatState() {
         let input = app.descendants(matching: .any)["vhs.input"]
         guard input.waitForExistence(timeout: 25) else { return }
@@ -96,8 +97,8 @@ final class V4Screenshots: XCTestCase {
         shot("02-chat-message")
     }
 
-    /// 03 按住态：外部 shell 并行 simctl screenshot 抓帧；本测试只长按 mic 8s。
-    /// 不 assert 录音态（模拟器无音频输入时红容器可能不出现）。
+    /// 03 Hold state: an external shell loop runs simctl screenshot in parallel; this test only holds the mic for 8s.
+    /// Does not assert the recording state (the red container may not appear when the simulator has no audio input).
     func testHoldTalking() {
         let input = app.descendants(matching: .any)["vhs.input"]
         guard input.waitForExistence(timeout: 25) else { return }
@@ -105,7 +106,7 @@ final class V4Screenshots: XCTestCase {
         sleep(1)
         let mic = app.descendants(matching: .any)["vhs.mic"]
         guard mic.waitForExistence(timeout: 5) else { return }
-        // 外部抓屏循环在此期间每 0.5s 一帧。
+        // The external capture loop takes a frame every 0.5s during this window.
         mic.press(forDuration: 8)
         sleep(1)
     }

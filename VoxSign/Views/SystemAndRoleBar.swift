@@ -2,12 +2,12 @@
 //  SystemAndRoleBar.swift
 //  VoxSign
 //
-//  打断红色系统条（已生效/未执行/可动作，可关闭）+ 顶部多角色折叠条（Planner/Executor/Verifier）。
+//  Red interrupt system bar (applied / not executed / actionable, dismissible) + top multi-role collapsible bar (Planner / Executor / Verifier).
 //
 
 import SwiftUI
 
-// MARK: - 打断红色系统条
+// MARK: - Red interrupt system bar
 
 struct SystemBarView: View {
     let bar: SystemBarInfo
@@ -32,8 +32,8 @@ struct SystemBarView: View {
             }
             HStack(spacing: 8) {
                 ForEach(bar.actions, id: \.self) { a in
-                    if a == "撤销" {
-                        Button("撤销") { onRollback() }
+                    if a == "Undo" {
+                        Button(NSLocalizedString("Undo", comment: "")) { onRollback() }
                             .font(.system(size: 12, weight: .bold))
                             .padding(.horizontal, 12).padding(.vertical, 5)
                             .background(Color.white)
@@ -56,7 +56,7 @@ struct SystemBarView: View {
     }
 }
 
-// MARK: - 多角色折叠条
+// MARK: - Multi-role collapsible bar
 
 struct RoleBarView: View {
     @EnvironmentObject var model: AppModel

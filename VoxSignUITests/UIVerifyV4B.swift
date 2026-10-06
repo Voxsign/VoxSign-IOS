@@ -1,12 +1,12 @@
 //
-//  UIVerifyV4B.swift — V4 方案B 临时验收辅助测试（非产品代码）
-//  目的：模拟器上验证并截图 V4 方案B 三个核心态：
-//        ① 默认态（空态 + ＋/🎤大按钮/⌨ 输入条）
-//        ② 按住态（满底波形界面：白底红波形 + “正在听…” + “松手发送 · 上移取消”）
-//        ③ 文字模式（点 ⌨ → 输入框 + 发送箭头）
-//  跑法：
-//   TEST_TARGET_NAME=VoxSign xcodebuild test -project ios/VoxSign.xcodeproj \
-//     -scheme VoxSign -destination 'id=61BF6DC5-ABAA-4ED9-BEA9-0656F6A4590E' \
+//  UIVerifyV4B.swift — V4 plan-B ad-hoc acceptance helper test (not product code).
+//  Purpose: verify and screenshot the three core V4 plan-B states on the simulator:
+//        ① default state (empty state + ＋/🎤 big button / ⌨ input bar)
+//        ② hold state (full-screen waveform: white bg + red waveform + "Listening…" + "release to send · slide up to cancel")
+//        ③ text mode (tap ⌨ -> input field + send arrow)
+//  Run:
+//   TEST_TARGET_NAME=VoxSign xcodebuild test -project VoxSign.xcodeproj \
+//     -scheme VoxSign -destination 'id=<simulator-id>' \
 //     -derivedDataPath /tmp/vhs-v4-dd-test -resultBundlePath /tmp/vhs-v4-ui.xcresult \
 //     -only-testing:VoxSignUITests/UIVerifyV4B/testV4BVerify
 //
@@ -22,7 +22,7 @@ final class UIVerifyV4B: XCTestCase {
         app.launch()
     }
 
-    /// 截图并 keepAlways，后续用 xcresulttool export attachments 导出。
+    /// Screenshot with keepAlways; export later via xcresulttool.
     func shot(_ name: String) {
         let att = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         att.name = name
@@ -31,27 +31,26 @@ final class UIVerifyV4B: XCTestCase {
     }
 
     func testV4BVerify() {
-        // 点掉首次安装的系统通知授权弹窗（springboard 级）
+        // Dismiss the first-launch system notification permission alert (springboard level)
         let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let alert = sb.alerts.firstMatch
         if alert.waitForExistence(timeout: 5) {
             let allow = alert.buttons["Allow"]
             if allow.exists {
                 allow.tap()
-            } else if alert.buttons["允许"].exists {
-                alert.buttons["允许"].tap()
             }
             sleep(1)
         }
 
-        // ① 默认态：等输入条出现（offline 时显示"未连接"横幅，同样截图——顶栏机器名/右上新建始终可见）
+        // ① Default state: wait for the input bar (an offline banner shows "Offline"; screenshot it too —
+        //    the top-bar machine name and top-right new-session button are always visible)
         let mic = app.descendants(matching: .any)["vhs.mic"]
         let offline = app.descendants(matching: .any)["vhs.offline"]
         _ = mic.waitForExistence(timeout: 10)
         sleep(2)
         shot("01-v6-default")
 
-        // ④ V6 左侧抽屉：点左上会话入口 → 抽屉滑出 → 截图 → 关闭（不依赖 mic/在线）
+        // ④ V6 left drawer: tap the top-left session entry -> drawer slides in -> screenshot -> close (independent of mic/online)
         let sessions = app.descendants(matching: .any)["vhs.sessions"]
         if sessions.waitForExistence(timeout: 5) {
             sessions.tap()
@@ -62,12 +61,12 @@ final class UIVerifyV4B: XCTestCase {
             sleep(1)
         }
 
-        // ② 按住态（仅语音大按钮存在时——offline 横幅场景跳过）
+        // ② Hold state (only when the voice big button exists — skipped in the offline-banner case)
         guard mic.exists else {
             if offline.exists { shot("02-v6-offline") }
             return
         }
-        // 按住语音大按钮，按住中途在辅助线程截图（波形界面）
+        // Press and hold the voice button; screenshot the waveform UI mid-hold on a helper thread
         let holdShot = expectation(description: "hold-shot")
         Thread.detachNewThread { [weak self] in
             Thread.sleep(forTimeInterval: 2.0)
@@ -83,7 +82,7 @@ final class UIVerifyV4B: XCTestCase {
         mic.press(forDuration: 4.0)
         wait(for: [holdShot], timeout: 12)
 
-        // ③ 文字模式：点 ⌨ → 输入框出现
+        // ③ Text mode: tap ⌨ -> input field appears
         let kb = app.descendants(matching: .any)["vhs.keyboard"]
         if kb.waitForExistence(timeout: 5) { kb.tap() }
         let input = app.textFields["vhs.input"]
@@ -91,7 +90,7 @@ final class UIVerifyV4B: XCTestCase {
         sleep(1)
         shot("03-v4-textmode")
 
-        // 输入文本 → 发送箭头出现
+        // Type text -> send arrow appears
         input.tap()
         input.typeText("hello v4")
         sleep(1)

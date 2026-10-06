@@ -2,7 +2,7 @@
 //  AttachmentModelTests.swift
 //  VoxSignTests
 //
-//  v2.4 附件模型单测：四种 kind 构造、Codable roundtrip、附加到 Bubble。
+//  v2.4 attachment-model tests: construct all four kinds, Codable roundtrip, attach to a Bubble.
 //
 
 import XCTest
@@ -11,10 +11,10 @@ import XCTest
 final class AttachmentModelTests: XCTestCase {
 
     func testAllKindsConstruct() {
-        let text = Attachment(id: "1", kind: .text, title: "粘贴文本", text: "正文内容")
-        let url = Attachment(id: "2", kind: .url, title: "参考链接", text: "https://voxsign.ai")
-        let image = Attachment(id: "3", kind: .image, title: "截图", localPath: "/tmp/a.png")
-        let file = Attachment(id: "4", kind: .file, title: "报告", fileName: "report.pdf", localPath: "/tmp/report.pdf")
+        let text = Attachment(id: "1", kind: .text, title: "Pasted text", text: "body content")
+        let url = Attachment(id: "2", kind: .url, title: "Reference link", text: "https://voxsign.ai")
+        let image = Attachment(id: "3", kind: .image, title: "Screenshot", localPath: "/tmp/a.png")
+        let file = Attachment(id: "4", kind: .file, title: "Report", fileName: "report.pdf", localPath: "/tmp/report.pdf")
 
         XCTAssertEqual(text.kind, .text)
         XCTAssertEqual(url.kind, .url)
@@ -31,20 +31,20 @@ final class AttachmentModelTests: XCTestCase {
     }
 
     func testCodableRoundtrip() throws {
-        let original = Attachment(id: "abc", kind: .file, title: "合同",
-                                  text: "可选备注", fileName: "contract.docx",
+        let original = Attachment(id: "abc", kind: .file, title: "Contract",
+                                  text: "optional note", fileName: "contract.docx",
                                   localPath: "/docs/contract.docx")
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Attachment.self, from: data)
         XCTAssertEqual(original, decoded)
         XCTAssertEqual(decoded.kind, .file)
-        XCTAssertEqual(decoded.text, "可选备注")
+        XCTAssertEqual(decoded.text, "optional note")
         XCTAssertEqual(decoded.fileName, "contract.docx")
     }
 
     func testCodableRoundtripOptionalNils() throws {
-        // 仅 kind + title，其余 nil：编解码不得崩溃且保持等价。
-        let original = Attachment(id: "x", kind: .url, title: "链接")
+        // Only kind + title, everything else nil: encode/decode must not crash and stay equal.
+        let original = Attachment(id: "x", kind: .url, title: "Link")
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Attachment.self, from: data)
         XCTAssertEqual(original, decoded)
@@ -54,16 +54,16 @@ final class AttachmentModelTests: XCTestCase {
     }
 
     func testAttachToBubble() {
-        let att = Attachment(id: "a1", kind: .text, title: "备注", text: "随消息提交的资料")
-        let bubble = Bubble(text: "帮我整理下", fromVoice: false, attachments: [att])
+        let att = Attachment(id: "a1", kind: .text, title: "Note", text: "resource sent with the message")
+        let bubble = Bubble(text: "tidy this up", fromVoice: false, attachments: [att])
         XCTAssertEqual(bubble.attachments.count, 1)
         XCTAssertEqual(bubble.attachments.first?.kind, .text)
-        XCTAssertEqual(bubble.attachments.first?.title, "备注")
+        XCTAssertEqual(bubble.attachments.first?.title, "Note")
     }
 
     func testStoredMessageCarriesAttachments() throws {
-        let att = Attachment(id: "a2", kind: .image, title: "图", localPath: "/tmp/i.jpg")
-        let msg = StoredMessage(id: "m1", role: "user", text: "看图", attachments: [att])
+        let att = Attachment(id: "a2", kind: .image, title: "Image", localPath: "/tmp/i.jpg")
+        let msg = StoredMessage(id: "m1", role: "user", text: "look at this", attachments: [att])
         let data = try JSONEncoder().encode(msg)
         let decoded = try JSONDecoder().decode(StoredMessage.self, from: data)
         XCTAssertEqual(decoded.attachments.count, 1)

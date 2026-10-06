@@ -2,10 +2,10 @@
 //  SpeechRecognizer.swift
 //  VoxSign
 //
-//  麦克风输入：v3 纯录音版（2026-10-04 用户定：本地离线识别全部移除）。
-//  链路：按住录音（AVAudioEngine → WAV）→ 松手 → POST Harness /v1/asr
-//        → ASR 服务器（平台千问 + 个性化热词）校准 → 校准文本一次性显示 → 自动提交。
-//  校准失败 → 明确提示「识别失败，请再按一次」，**不回退本地识别**。
+//  Microphone input: v3 record-only build (decided 2026-10-04: all local offline recognition removed).
+//  Flow: hold to record (AVAudioEngine -> WAV) -> release -> POST Harness /v1/asr
+//        -> ASR server (platform model + custom hotwords) calibrates -> calibrated text shown once ->
+//        auto-submit. Calibration failure -> explicit error; NO local-recognition fallback.
 //
 
 import Foundation
@@ -17,36 +17,36 @@ final class SpeechRecognizer: ObservableObject {
 
     @Published var transcript: String = ""
     @Published var isRecording: Bool = false
-    /// 识别不可用（无权限/不支持）→ UI 回退键盘。
+    /// Recognition unavailable (no permission / unsupported) -> the UI falls back to the keyboard.
     @Published var unavailable: Bool = false
-    /// 豆包式"按住说话"模式：按住录音、松手上传 ASR 服务器校准 → 自动提交。
+    /// Doubao-style "hold to talk": hold to record, release to upload to the ASR server, auto-submit.
     private var holdMode = false
-    /// ASR 校准态：松手 → "正在校准…"（不出文字）→ 平台千问校准完成才出文字。
+    /// ASR calibrating state: on release -> "Calibrating…" (no text) -> text appears once calibration completes.
     @Published var calibrating: Bool = false
-    /// 校准失败态：显示「识别失败，请再按一次」（不回退本地识别）。
+    /// Calibration failed state: show the failure hint (no local-recognition fallback).
     @Published var asrFailed: Bool = false
-    /// 松手后 WAV 为空（没录到声音）→ 提示重说（与 asrFailed 分开，给用户明确原因）。
+    /// WAV is empty after release (no sound captured) -> prompt to retry (distinct from asrFailed, gives the user a clear reason).
     @Published var emptyRecording: Bool = false
-    /// 按住录音时的实时振幅（0~1），驱动声波条动画（豆包式"按住有反应"）。
+    /// Live amplitude while holding (0~1), drives the waveform animation (Doubao-style "responds on hold").
     @Published var meterLevel: Float = 0
 
-    /// UI v3：按住录音累计秒数（语音气泡时长显示，如 "3″"）。startHold 清零，stopHold/cancelHold 定格。
+    /// UI v3: cumulative hold seconds (shown as the voice bubble duration, e.g. "3s"). startHold resets it; stopHold/cancelHold freeze it.
     private(set) var lastHoldSeconds: Int = 0
     private var holdTimer: Timer?
 
     private let engine = AVAudioEngine()
-    /// 音频会话/引擎启动专用后台串行队列（按住延迟修复：不阻塞主线程渲染）。
+    /// Dedicated background serial queue for audio session/engine startup (hold-latency fix: does not block main-thread rendering).
     private let audioSetupQueue = DispatchQueue(label: "com.voicesign.audio-setup", qos: .userInitiated)
-    /// 录音 WAV 文件（平台校准用）与对应 URL。
+    /// Recording WAV file (for platform calibration) and its URL.
     private var audioFile: AVAudioFile?
     private var audioURL: URL?
-    /// v2.3 重入防护：isRecording 是异步置位，快速连按时 start() 可能被重复调用，
-    /// 导致 installTap 二次注册崩溃。启动中/录音中直接忽略。
+    /// v2.3 re-entry guard: isRecording is set asynchronously, so rapid taps could call start() twice,
+    /// which crashed from a double installTap. Calls while starting/recording are ignored.
     private var starting = false
 
-    // MARK: - 按住延迟打点（LAT）：touch→pressActive→startHold→session→engine→meter 首帧
+    // MARK: - Hold-latency timing (LAT): touch->pressActive->startHold->session->engine->first meter frame
     private static var touchMs: TimeInterval = 0
-    /// 由 InputBarView.onChanged 在手指落下瞬间调用（主线程，最近）。
+    /// Called by InputBarView.onChanged the instant the finger lands (main thread, most recent).
     static func markTouch() { touchMs = Date().timeIntervalSince1970 * 1000 }
     private func lat(_ tag: String) {
         let now = Date().timeIntervalSince1970 * 1000
@@ -54,12 +54,12 @@ final class SpeechRecognizer: ObservableObject {
         print("[LAT] \(tag) +\(String(format: "%.0f", d))ms")
         DiagLogger.shared.log("LAT", "\(tag) +\(String(format: "%.0f", d))ms")
     }
-    /// tap 首帧打点只打一次。
+    /// Log the first meter frame only once.
     private var didLogFirstMeter = false
 
     private init() {}
 
-    /// 请求麦克风授权（首次会弹系统权限框）。
+    /// Request microphone permission (shows the system prompt on first use).
     func requestAuthorization() {
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] ok in
             DispatchQueue.main.async { if !ok { self?.unavailable = true } }
@@ -70,27 +70,27 @@ final class SpeechRecognizer: ObservableObject {
         isRecording ? stop() : start()
     }
 
-    // MARK: - 豆包式"按住说话"（主交互）
+    // MARK: - Doubao-style "hold to talk" (main interaction)
 
-    /// 按住开始录音（纯录音，不喂任何本地识别）。
+    /// Hold to start recording (record only; no local recognition fed).
     func startHold() {
         lat("startHold entry")
         didLogFirstMeter = false
         holdMode = true
-        // UI v3：按住录音计时（语音气泡时长）。
+        // UI v3: hold-recording timer (voice bubble duration).
         lastHoldSeconds = 0
         holdTimer?.invalidate()
         holdTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self, self.isRecording else { return }
             self.lastHoldSeconds += 1
         }
-        // 用户要说话，先停掉上一段回复朗读（录音 session 也会切走 playback）。
+        // The user wants to speak: stop the previous reply TTS first (the recording session also ducks playback).
         VoiceOutputService.shared.stop()
         start()
     }
 
-    /// 松手（ASR 校准）：停引擎/关 WAV → 上传 ASR 服务器（平台千问 + 热词）校准。
-    /// 校准成功 → 一次性出文字 → 自动提交；失败 → asrFailed 提示（无本地兜底）。
+    /// Release (ASR calibration): stop engine/close WAV -> upload to the ASR server (platform model + hotwords) for calibration.
+    /// Calibration success -> text appears once -> auto-submit; failure -> asrFailed hint (no local fallback).
     func stopHold() {
         holdMode = false
         holdTimer?.invalidate()
@@ -99,10 +99,10 @@ final class SpeechRecognizer: ObservableObject {
         startCalibration()
     }
 
-    /// 上滑取消（豆包同款手势）：直接清理录音，**不发送**。
+    /// Swipe up to cancel (same gesture as Doubao): discard the recording, do NOT send.
     func cancelHold() {
-        print("[ASR] cancelHold（上滑取消）")
-        DiagLogger.shared.log("ASR", "cancelHold（上滑取消）")
+        print("[ASR] cancelHold (swipe-up cancel)")
+        DiagLogger.shared.log("ASR", "cancelHold (swipe-up cancel)")
         holdMode = false
         holdTimer?.invalidate()
         holdTimer = nil
@@ -118,7 +118,7 @@ final class SpeechRecognizer: ObservableObject {
         transcript = ""
     }
 
-    /// 结束录音会话：停 tap/引擎/会话，关 WAV 文件。
+    /// End the recording session: stop tap/engine/session, close the WAV file.
     private func endRecordingSession() {
         engine.inputNode.removeTap(onBus: 0)
         if engine.isRunning { engine.stop() }
@@ -127,20 +127,20 @@ final class SpeechRecognizer: ObservableObject {
         isRecording = false
     }
 
-    /// ASR 校准：松手后把 WAV 上传 /v1/asr → ASR 服务器（平台千问 + 个性化热词）校准。
-    /// 成功 → 一次性出文字 + 自动提交；失败 → asrFailed（提示重说，不回退本地识别）。
+    /// ASR calibration: on release upload the WAV to /v1/asr -> ASR server (platform model + personal hotwords).
+    /// Success -> text appears once + auto-submit; failure -> asrFailed (prompt to retry, no local fallback).
     private func startCalibration() {
         calibrating = true
         asrFailed = false
         emptyRecording = false
         guard let url = audioURL, FileManager.default.fileExists(atPath: url.path),
               let audioData = try? Data(contentsOf: url), !audioData.isEmpty else {
-            // 无有效录音（没说话/录音失败）→ 明确提示"没录到声音"，与识别失败区分。
+            // No valid recording (silence/recording failed) -> explicitly prompt "no sound captured", distinct from recognition failure.
             calibrating = false
             emptyRecording = true
             return
         }
-        // WAV 有文件但 data chunk 为空（如转换失败）→ 同样按"没录到声音"处理。
+        // WAV file exists but its data chunk is empty (e.g. conversion failed) -> treat as "no sound captured" too.
         let wavDataLen = wavDataChunkLength(audioData)
         if wavDataLen == 0 {
             print("[ASR] WAV data chunk empty (bytes=\(audioData.count))")
@@ -156,23 +156,23 @@ final class SpeechRecognizer: ObservableObject {
                 guard let self = self else { return }
                 self.calibrating = false
                 if ok, let text = text, !text.isEmpty {
-                    // ASR 服务器校准成功：一次性出文字 + 自动提交（豆包式）。
+                    // ASR server calibration succeeded: text appears once + auto-submit (Doubao-style).
                     self.transcript = text
                     self.asrFailed = false
                     self.onFinalSegment?(text)
                 } else {
-                    // ASR 服务器未就绪/失败：明确提示重说，绝不用本地识别兜底。
+                    // ASR server not ready/failed: explicitly prompt to retry; never fall back to local recognition.
                     self.asrFailed = true
                 }
             }
         }
     }
 
-    /// T2 豆包式交互：校准得到完整文本时回调文本。
-    /// AppModel 设置后即"开口即达"——校准完自动提交，无需再按发送键。
+    /// T2 Doubao-style: callback with the calibrated full text.
+    /// Once AppModel sets this, it is "speak-and-go" — after calibration it auto-submits, no send tap needed.
     var onFinalSegment: ((String) -> Void)?
 
-    /// 上传 WAV → harness /v1/asr（multipart file=）→ ASR 服务器校准。20s 超时。
+    /// Upload WAV -> harness /v1/asr (multipart file=) -> ASR server calibration. 20s timeout.
     private func uploadAudio(_ data: Data, completion: @escaping (String?, Bool) -> Void) {
         let base = SettingsStore.shared.base
         guard !base.isEmpty, let endpoint = URL(string: base + "/v1/asr") else {
@@ -208,11 +208,11 @@ final class SpeechRecognizer: ObservableObject {
 
     func start() {
         guard !isRecording, !starting else {
-            print("[ASR] start 忽略（已在录音/启动中）")
+            print("[ASR] start ignored (already recording/starting)")
             return
         }
         starting = true
-        // 豆包式：按下瞬间立即进录音态（UI 先反馈，不等引擎就绪）。
+        // Doubao-style: enter recording state the instant the button is pressed (UI feedback first, don't wait for the engine).
         DispatchQueue.main.async {
             self.transcript = ""
             self.isRecording = true
@@ -221,21 +221,21 @@ final class SpeechRecognizer: ObservableObject {
         }
         print("[ASR] start: mic=\(micStatus()) hold=\(holdMode)")
         DiagLogger.shared.log("ASR", "start mic=\(micStatus())")
-        // 【闪退修复 T3】权限前置检查：麦克风未授权时，AVAudioEngine 的
-        // installTap/engine.start 会抛 NSException（Swift do-catch 捕不到）→ 直接闪退。
+        // [Crash fix T3] Pre-check permission: when the mic is not authorized, AVAudioEngine's
+        // installTap/engine.start raises an NSException (Swift do-catch cannot catch it) -> hard crash.
         let mic = AVAudioSession.sharedInstance().recordPermission
         switch mic {
         case .granted:
             break
         case .undetermined:
-            print("[ASR] mic undetermined → 请求授权")
+            print("[ASR] mic undetermined -> requesting permission")
             AVAudioSession.sharedInstance().requestRecordPermission { [weak self] ok in
                 DispatchQueue.main.async {
                     guard let self = self else { return }
-                    print("[ASR] mic 授权结果 ok=\(ok)")
-                    DiagLogger.shared.log("ASR", "mic 授权 ok=\(ok)")
+                    print("[ASR] mic permission result ok=\(ok)")
+                    DiagLogger.shared.log("ASR", "mic permission ok=\(ok)")
                     if ok {
-                        self.start()   // 授权成功：立即补启动（用户不用再按一次）
+                        self.start()   // permission granted: start immediately (no need to tap again)
                     } else {
                         self.unavailable = true
                         self.isRecording = false
@@ -253,11 +253,13 @@ final class SpeechRecognizer: ObservableObject {
         @unknown default:
             return
         }
-        // 【按住延迟修复】AVAudioSession setCategory/setActive 与 engine.start() 是同步阻塞调用
-        // （真机首发起可达数百 ms ~ 1s）。原来在主线程同步执行 → pressActive=true 的 SwiftUI
-        // 渲染被它挡住，用户按下去要等引擎起完才看到波形（≈1s）。改到后台串行队列：按下瞬间
-        // 主线程立即返回，pressActive 视觉 + 触觉反馈马上生效；引擎在后台起来后 meterLevel
-        // 自然接上波形。AVAudioSession/AVAudioEngine 操作线程安全，仅 UI 状态回主线程。
+        // [Hold-latency fix] AVAudioSession setCategory/setActive and engine.start() are synchronous,
+        // blocking calls (on a real device the first launch can take hundreds of ms to ~1s). Running them
+        // on the main thread previously blocked the pressActive=true SwiftUI render, so the user waited
+        // ~1s after pressing before seeing the waveform. Now they run on a background serial queue: the
+        // main thread returns instantly on press and pressActive visuals + haptics take effect at once;
+        // once the engine is up in the background meterLevel feeds the waveform. AVAudioSession/AVAudioEngine
+        // calls are thread-safe; only UI state hops back to the main thread.
         audioSetupQueue.async { [weak self] in
             guard let self = self else { return }
             do {
@@ -265,19 +267,19 @@ final class SpeechRecognizer: ObservableObject {
                 try session.setCategory(.record, mode: .measurement, options: .duckOthers)
                 try session.setActive(true, options: .notifyOthersOnDeactivation)
                 self.lat("session active")
-                print("[ASR] session 已激活 (record)")
-                DiagLogger.shared.log("ASR", "session 已激活")
-                // v2.3 崩溃修复：AVAudioEngine 已有 tap 时再次 installTap 会抛 ObjC NSException。
-                // installTap 前**幂等清理**：引擎还在跑就停、已有 tap 就移除，再开新 tap。
+                print("[ASR] session active (record)")
+                DiagLogger.shared.log("ASR", "session active")
+                // v2.3 crash fix: installTap again on an AVAudioEngine that already has a tap raises an ObjC NSException.
+                // Idempotent cleanup before installTap: if the engine is running stop it; if a tap exists remove it; then add the new tap.
                 if self.engine.isRunning { self.engine.stop() }
                 self.engine.inputNode.removeTap(onBus: 0)
 
                 let node = self.engine.inputNode
                 let hardwareFormat = node.outputFormat(forBus: 0)
                 print("[ASR] installTap format=\(hardwareFormat.sampleRate)Hz ch=\(hardwareFormat.channelCount)")
-                // v2.5 录音修复：AVAudioFile 统一写 16k Int16 单声道。
-                // 16k Int16 是平台 ASR 标准输入格式；tap 按硬件格式收 buffer，用
-                // AVAudioConverter 转成 16k Int16 单声道再写文件。
+                // v2.5 recording fix: AVAudioFile always writes 16k Int16 mono.
+                // 16k Int16 is the platform ASR standard input; the tap receives hardware-format buffers,
+                // converted to 16k Int16 mono via AVAudioConverter before writing.
                 let fileURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent("vhs-voice-\(Int(Date().timeIntervalSince1970 * 1000)).wav")
                 let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
@@ -301,7 +303,7 @@ final class SpeechRecognizer: ObservableObject {
                     let cap = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
                     guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: cap) else { return }
                     var convErr: NSError?
-                    // 【ASR 重复字根因修复】input block 必须"每次只供一块 buffer"，之后回 .noDataNow。
+                    // [Repeated-syllable fix] the input block must supply only one buffer per call, then return .noDataNow.
                     var suppliedInput = false
                     let status = cv.convert(to: outBuf, error: &convErr) { _, outStatus in
                         if suppliedInput {
@@ -326,8 +328,8 @@ final class SpeechRecognizer: ObservableObject {
                             }
                         }
                     }
-                    // 按住时的实时振幅反馈：兼容 float32 / int16 两种 tap 格式，
-                    // 低通平滑后驱动 UI 声波条（豆包式"按住有反应"）。
+                    // Live amplitude feedback while holding: supports both float32 and int16 tap formats,
+                    // low-pass smoothed to drive the UI waveform bar (Doubao-style "responds on hold").
                     var peak: Float = 0
                     let n = Int(buffer.frameLength)
                     if buffer.format.commonFormat == .pcmFormatFloat32, let ch = buffer.floatChannelData {
@@ -355,7 +357,7 @@ final class SpeechRecognizer: ObservableObject {
                             }
                         }
                     }
-                    // dB 域映射：0.001(-60dB)~1(0dB) 线性展开到 0~1
+                    // dB-domain mapping: 0.001(-60dB)~1(0dB) linearly mapped to 0~1
                     let lvl: Float
                     if peak > 1e-3 {
                         lvl = min(1, max(0, (log10(peak) + 3.0) / 3.0))
@@ -382,8 +384,8 @@ final class SpeechRecognizer: ObservableObject {
                     self.transcript = ""
                 }
             } catch {
-                print("[ASR] 启动异常(可捕): \(error.localizedDescription)")
-                DiagLogger.shared.log("ASR", "启动异常: \(error.localizedDescription)")
+                print("[ASR] start error (catchable): \(error.localizedDescription)")
+                DiagLogger.shared.log("ASR", "start error: \(error.localizedDescription)")
                 self.starting = false
                 DispatchQueue.main.async {
                     self.isRecording = false
@@ -403,7 +405,7 @@ final class SpeechRecognizer: ObservableObject {
         meterLevel = 0
     }
 
-    // MARK: - 日志辅助
+    // MARK: - Logging helpers
 
     private func micStatus() -> String {
         switch AVAudioSession.sharedInstance().recordPermission {
@@ -414,7 +416,7 @@ final class SpeechRecognizer: ObservableObject {
         }
     }
 
-    /// 解析 WAV 头里 data chunk 的字节长度（4 字节小端）。解析失败返回 -1。
+    /// Parse the byte length of the data chunk in the WAV header (4 bytes, little-endian). Returns -1 on failure.
     private func wavDataChunkLength(_ data: Data) -> Int {
         guard data.count >= 12, data[0] == 0x52, data[1] == 0x49, data[2] == 0x46, data[3] == 0x46 else {
             return -1
@@ -429,7 +431,7 @@ final class SpeechRecognizer: ObservableObject {
         return -1
     }
 
-    /// P1 一轮一清：发送后清空识别缓冲，下一轮从空白开始。
+    /// P1 one-turn-one-clear: clear the recognition buffer after send; the next turn starts blank.
     func resetRound() {
         transcript = ""
     }

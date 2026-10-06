@@ -2,15 +2,19 @@
 //  SSEParser.swift
 //  VoxSign
 //
-//  SSE 事件流解析（纯逻辑，无网络）——逐字对齐《SSE-v1-事件流契约.md》。
-//  - 标准 SSE 分帧：事件以空行分隔；`event:` 给类型（缺省 message）；`data:` 多行以 \n 拼接。
-//  - data 内必含 `seq`（单调递增，同任务内不重复，从 1 起）；缺字段按缺省处理不崩溃。
-//  - 断线重连：客户端保存 lastSeq，重连请求带 `?after=<lastSeq>`，server 重放 seq > after。
+//  Server-Sent Events stream parser (pure logic, no networking) aligned with the SSE-v1
+//  event-stream contract:
+//  - Standard SSE framing: events are separated by a blank line; `event:` gives the type
+//    (defaults to message); multi-line `data:` is joined with \n.
+//  - data always carries `seq` (monotonic, unique within a task, starting at 1); missing
+//    fields default safely and must never crash.
+//  - Reconnect: the client keeps lastSeq and reconnects with `?after=<lastSeq>`; the server
+//    replays seq > after.
 //
 
 import Foundation
 
-/// 归一化后的 SSE 事件类型。
+/// Normalized SSE event type.
 enum SSEEvent: Equatable {
     case stage(seq: Int, role: String?, phase: String?, step: String?)
     case ask(seq: Int, question: String, options: [TaskOption])
@@ -21,7 +25,7 @@ enum SSEEvent: Equatable {
     case canceled(seq: Int)
     case unknown(type: String, seq: Int?)
 
-    /// 事件的 seq（unknown 可能缺）。
+    /// Event seq (unknown may omit it).
     var seq: Int? {
         switch self {
         case .stage(let s, _, _, _), .ask(let s, _, _), .confirm(let s, _),
@@ -33,7 +37,7 @@ enum SSEEvent: Equatable {
         }
     }
 
-    /// 是否为终态事件（连接应关闭）：done/failed/canceled。
+    /// Whether this is a terminal event (the connection should close): done/failed/canceled.
     var isTerminal: Bool {
         switch self {
         case .done, .failed, .canceled: return true
@@ -42,8 +46,8 @@ enum SSEEvent: Equatable {
     }
 }
 
-/// 把 raw data JSON 字典按事件类型解码为强类型 SSEEvent。
-/// data 字段缺失时消费者按缺省处理，不得因缺字段崩溃。
+/// Decode a raw data JSON dictionary into a strongly-typed SSEEvent by event type.
+/// Consumers default missing data fields; decoding must never crash on absent keys.
 enum SSEDecoder {
 
     private static let jsonDecoder: JSONDecoder = {
@@ -54,7 +58,7 @@ enum SSEDecoder {
 
     static func decode(type rawType: String, data raw: String) -> SSEEvent {
         let type = rawType.isEmpty ? "message" : rawType
-        // data 可能是多行拼接的 JSON 字符串。
+        // data may be a multi-line joined JSON string.
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = trimmed.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -108,21 +112,23 @@ enum SSEDecoder {
     }
 }
 
-/// 流式 SSE 帧解析器：喂入任意字节段（chunks），吐已凑完整的事件。
+/// Streaming SSE frame parser: feed arbitrary byte chunks, emit fully-formed events.
 /**
- * 【伪代码逻辑层】（必写：SSE 状态机 / lastSeq / 重连）
+ * [Logic layer pseudocode]
  *   feed(chunk):
  *     buffer += chunk
- *     while buffer 含 "\n\n"（或 "\r\n\r\n"）:
- *        取一个 block（到首个空行为止）
- *        解析 block 内多行:
- *          event: <type>        → eventType（缺省 "message"）
- *          data:  <line>        → dataLines += line（多行 data 用 \n 拼接）
+ *     while buffer contains "\n\n" (or "\r\n\r\n"):
+ *        take one block (up to the first blank line)
+ *        parse the block's multiple lines:
+ *          event: <type>        -> eventType (default "message")
+ *          data:  <line>        -> dataLines += line (multi-line data joined with \n)
  *        event = SSEDecoder.decode(eventType, dataLines.joined("\n"))
  *        lastSeq = max(lastSeq, event.seq)
  *        yield(event)
- *   断线重连：用 lastSeq 拼 URL?after=<lastSeq>；server 重放 seq > after，不重复不丢。
- *   异常：半截事件（buffer 末尾无空行）留在 buffer 等下一段；JSON 解析失败 → unknown 不炸。
+ *   Reconnect: rebuild URL?after=<lastSeq> from lastSeq; the server replays seq > after,
+ *   with no duplicates and no loss.
+ *   Edge cases: a partial event (no trailing blank line at buffer end) stays buffered until the
+ *   next chunk; JSON decode failure -> unknown, never crash.
  */
 final class SSEParser {
     private var buffer = ""
@@ -130,11 +136,11 @@ final class SSEParser {
 
     init() {}
 
-    /// 喂入一段文本，返回所有在本段内凑完整的事件。
+    /// Feed a chunk of text; return all events completed within this chunk.
     func feed(_ text: String) -> [SSEEvent] {
         buffer += text
         var events: [SSEEvent] = []
-        // 反复切出以空行（\n\n 或 \r\n\r\n）结尾的 block。
+        // Repeatedly cut out blocks ending at a blank line (\n\n or \r\n\r\n).
         while let range = buffer.range(of: "\n\n") ?? buffer.range(of: "\r\n\r\n") {
             let block = String(buffer[buffer.startIndex..<range.lowerBound])
             buffer.removeSubrange(buffer.startIndex..<range.upperBound)
@@ -146,11 +152,11 @@ final class SSEParser {
         return events
     }
 
-    /// 把一个完整 block 解析成事件；空 block 返回 nil。
+    /// Parse one complete block into an event; returns nil for an empty block.
     private func parseBlock(_ block: String) -> SSEEvent? {
         var eventType = ""
         var dataLines: [String] = []
-        // 行分隔兼容 \n 与 \r\n
+        // Tolerate \n and \r\n line endings.
         for line in block.components(separatedBy: "\n") {
             let trimmedCR = line.hasSuffix("\r") ? String(line.dropLast()) : line
             if trimmedCR.hasPrefix("event:") {
@@ -158,17 +164,18 @@ final class SSEParser {
                     .trimmingCharacters(in: .whitespaces)
             } else if trimmedCR.hasPrefix("data:") {
                 var d = String(trimmedCR.dropFirst("data:".count))
-                // SSE 规范：冒号后若有一个空格，剥掉。
+                // SSE spec: strip a single leading space after the colon.
                 if d.hasPrefix(" ") { d.removeFirst() }
                 dataLines.append(d)
             }
-            // 其他行（id:/retry:/注释:）忽略——契约只用 event/data。
+            // Ignore other lines (id:/retry:/comments) — the contract only uses event/data.
         }
         if dataLines.isEmpty && eventType.isEmpty { return nil }
         return SSEDecoder.decode(type: eventType, data: dataLines.joined(separator: "\n"))
     }
 
-    /// 重连 URL：在事件路径后追加 ?after=<lastSeq>（契约：或标准 Last-Event-ID 头）。
+    /// Reconnect URL: append ?after=<lastSeq> to the event path (the contract also allows the
+    /// standard Last-Event-ID header).
     static func reconnectURL(base: URL, after lastSeq: Int) -> URL {
         if var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) {
             var items = comps.queryItems ?? []

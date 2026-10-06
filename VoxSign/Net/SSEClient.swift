@@ -2,37 +2,39 @@
 //  SSEClient.swift
 //  VoxSign
 //
-//  SSE 事件流客户端（GET /v1/tasks/{id}/events，Bearer 认证）。
-//  用 URLSession.bytes(for:) 逐行读流，喂入 SSEParser；断线按 ?after=lastSeq 重连。
-//  连接保持到任务终态（done/failed/canceled/interrupted）后关闭。
+//  SSE event-stream client (GET /v1/tasks/{id}/events, Bearer auth).
+//  Reads the stream line by line via URLSession.bytes(for:), feeds SSEParser, and reconnects with
+//  ?after=lastSeq on drop. The connection stays open until a terminal task state
+//  (done/failed/canceled/interrupted) closes it.
 //
 
 import Foundation
 
-/// 把 SSE 字节流转为 AsyncThrowingStream<SSEEvent>。
+/// Turns the SSE byte stream into an AsyncThrowingStream<SSEEvent>.
 final class SSEClient {
     static let shared = SSEClient()
     var settings: SettingsStore = .shared
 
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
-        // 修复卡死根源（T2）：waitsForConnectivity=true 时，网络不可达会让
-        // URLSession 无限期等待连接建立 —— 手机连不上 server 时 UI 就"卡死"。
-        // 改走显式竞速超时（connectTimeout），连不上 10s 内抛错给上层重连决策。
+        // Fix the root cause of the freeze (T2): with waitsForConnectivity=true, an unreachable
+        // network makes URLSession wait forever to establish — when the phone can't reach the
+        // server the UI "freezes". We use an explicit racing timeout (connectTimeout) instead:
+        // if we can't connect within 10s we throw and let the upper layer decide to reconnect.
         cfg.waitsForConnectivity = false
-        // 60s 仅作 idle 超时（流上长时间无任何字节），SSE keepalive 足够。
+        // 60s is only the idle timeout (no bytes on the stream for a while); SSE keepalive is well under it.
         cfg.timeoutIntervalForRequest = 60
         return URLSession(configuration: cfg)
     }()
 
-    /// 建立连接的最长等待（秒）：TCP/HTTP 握手阶段竞速超时，超时按"连接失败"处理。
-    /// 上层（AppModel.openSSE）会按退避策略重连，不会无限挂起。
+    /// Max wait to establish a connection (s): a racing timeout for the TCP/HTTP handshake; on timeout treat as connection failure.
+    /// The upper layer (AppModel.openSSE) reconnects with backoff, so nothing hangs forever.
     private let connectTimeout: TimeInterval = 10
 
-    /// 订阅某任务的事件流。
-    /// - Parameter taskId: 任务 id
-    /// - Parameter after: 断线重连时的 lastSeq（首次为 0 = 从首事件起）
-    /// - Returns: 事件 AsyncThrowingStream；收到终态事件后自然结束。
+    /// Subscribe to a task's event stream.
+    /// - Parameter taskId: task id
+    /// - Parameter after: lastSeq on reconnect (0 on first connect = from the first event)
+    /// - Returns: an event AsyncThrowingStream; it ends naturally after a terminal event.
     func events(taskId: String, after: Int = 0) -> AsyncThrowingStream<SSEEvent, Error> {
         AsyncThrowingStream { [weak self] continuation in
             guard let self = self else {
@@ -41,7 +43,7 @@ final class SSEClient {
             }
             let basePath = "/v1/tasks/\(taskId)/events"
             guard let baseURL = self.settings.url(basePath) else {
-                continuation.finish(throwing: APIError.transport("server 地址无效"))
+                continuation.finish(throwing: APIError.transport("Invalid server address"))
                 return
             }
             let url = after > 0 ? SSEParser.reconnectURL(base: baseURL, after: after) : baseURL
@@ -50,14 +52,14 @@ final class SSEClient {
             if !self.settings.token.isEmpty {
                 req.setValue("Bearer \(self.settings.token)", forHTTPHeaderField: "Authorization")
             }
-            // SSE 规范：断线重连也可用 Last-Event-ID 头（这里走 ?after=query，与契约双兼容）。
+            // SSE spec: reconnect can also use the Last-Event-ID header (here we use ?after=query, both contract-compatible).
 
             let parser = SSEParser()
             let task = Task {
                 do {
-                    // T2 连接竞速超时：URLSession 的 timeoutIntervalForRequest 只覆盖
-                    // idle 超时，不覆盖"连不上"——用 withThrowingTaskGroup 加一个
-                    // connectTimeout 的哨兵任务，谁先失败/完成即裁决。
+                    // T2 racing connect timeout: URLSession's timeoutIntervalForRequest only covers
+                    // idle timeout, not "can't connect" — we add a connectTimeout sentinel task via
+                    // withThrowingTaskGroup and whichever finishes/fails first wins.
                     let (bytes, resp): (URLSession.AsyncBytes, URLResponse) = try await withThrowingTaskGroup(of: (URLSession.AsyncBytes, URLResponse).self) { group in
                         group.addTask {
                             let (b, r) = try await self.session.bytes(for: req)
@@ -65,7 +67,7 @@ final class SSEClient {
                         }
                         group.addTask {
                             try await Task.sleep(nanoseconds: UInt64(self.connectTimeout * 1_000_000_000))
-                            throw APIError.transport("SSE 连接超时（\(Int(self.connectTimeout))s，服务不可达？）")
+                            throw APIError.transport("SSE connect timeout (\(Int(self.connectTimeout))s; service unreachable?)")
                         }
                         let first = try await group.next()!
                         group.cancelAll()
@@ -73,12 +75,12 @@ final class SSEClient {
                     }
                     guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                         continuation.finish(throwing: APIError.http((resp as? HTTPURLResponse)?.statusCode ?? 0,
-                                                                   "SSE 连接失败"))
+                                                                   "SSE connection failed"))
                         return
                     }
                     for try await line in bytes.lines {
-                        // bytes.lines 给的是单行；SSE 事件以空行分隔，
-                        // 我们把每行（含末尾换行）喂回 parser 以正确分帧。
+                        // bytes.lines yields single lines; SSE events are separated by blank lines,
+                        // so we feed each line (with trailing newline) back to the parser to frame correctly.
                         let events = parser.feed(line + "\n")
                         for ev in events {
                             continuation.yield(ev)

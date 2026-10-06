@@ -1,63 +1,76 @@
-# VoxSign iOS V4 · 方案 B 最终设计规格（用户已确认 2026-10-06）
+# VoxSign iOS V4 · Plan B Final Design Spec (confirmed by the user 2026-10-06)
 
-本文件是 V4 实现的唯一设计依据。用户已对方案 B 修正稿回复「ok」。
+This document is the single design reference for the V4 implementation. The user replied "ok" to the
+Plan B revision.
 
-## 0. 背景与基准
+## 0. Background and baseline
 
-- 工程：/Users/zouyongming/vhs-ui-v3/ios，分支 ui-v3-doubao，VoxSign.xcodeproj / scheme VoxSign
-- 按住态视觉基准（用户 iOS 实拍）：`docs/v4-ref-doubao-holdstate.png`
-- 聊天参考图：`docs/v4-ref-doubao-chat.png`；改造前现状：`docs/v4-cur-state.png`
-- 版本：Info.plist 4.0 (build 10)；bundle id = ai.voxsign.ios
+- Project: VoxSign.xcodeproj / scheme VoxSign.
+- Hold-state visual baseline (user's real-device photo) and chat reference: the original Doubao
+  reference screenshots have been removed from this open-source release; this text stands on its own.
+- Version: Info.plist 4.0 (build 10); bundle id = ai.voxsign.ios.
 
-## 1. 必须保留（不可回退）
+## 1. Must keep (no regression)
 
-1. **按住说话卡死修复**（提交 `5f54837`，逐字节不得改动）：
-   - holdGesture 双宿主（红条/波形区域本身挂手势，麦克风宿主不再被 allowsHitTesting(false) 禁用）
-   - holdInitiated 防重入
-   - 极轻点竞态兜底（onEnded 后下一拍补 stopHold）
-   - isRecording 置 true 但无按压时看门狗 cancelHold
-   - 涉及：InputBarView.swift + SpeechRecognizer.swift 的调用链
-2. 顶栏豆包式：居中主标题 VoxSign + 副标题 VoxSign·metasystem（旧 V4 代理已改，保留）
-3. 消息气泡/时间戳豆包式、空态极简、AI 消息行收…菜单（去🔔🔊）、无云电脑/技能按钮
-4. ＋添加资料四类（文本/URL/图片/文件），AttachmentPanelView 逻辑保留
+1. **Press-to-talk freeze fix** (commit `5f54837`; do not change byte-for-byte):
+   - holdGesture dual host (the red bar / waveform area itself carries the gesture; the mic host is no
+     longer disabled via allowsHitTesting(false))
+   - holdInitiated re-entry guard
+   - very-light-tap race fallback (after onEnded, stopHold on the next tick)
+   - watchdog cancelHold when isRecording is true but no finger is pressed
+   - Touches the call chain in InputBarView.swift + SpeechRecognizer.swift.
+2. Doubao-style top bar: centered main title "VoxSign" + subtitle "VoxSign·metasystem" (already done by the earlier V4 agent; keep).
+3. Doubao-style bubbles / timestamps, minimal empty state, AI message row collapsed to a … menu (no bell/speaker),
+   no "cloud computer / skill" buttons.
+4. The four ＋ add-resource kinds (text / URL / image / file); AttachmentPanelView logic kept.
 
-## 2. 默认态输入条（聊天页底部，方案 B）
+## 2. Default-state input bar (bottom of the chat page, Plan B)
 
-一行三元素，浅灰圆角容器（仿豆包聊天页）：
+One row of three elements in a light-gray rounded container (mimicking the Doubao chat page):
 
 ```
-[＋]  [ 🎤 按住说话（黑色大按钮，flex:1） ]  [⌨]
+[＋]   [ 🎤 HOLD TO TALK (big black button, flex:1) ]   [⌨]
 ```
 
-- ＋：约 30×30 圆形浅灰底，点击弹添加资料面板（四类）
-- **主按钮：flex:1 占满宽度主体，深黑底（#1A1A1A）白字，高约 48pt，圆角约 24pt，居中「🎤 按住说话」（14–15pt 粗体）——按住即录音**
-- ⌨：约 30×30 圆形浅灰底键盘图标，点击切文字输入（出键盘+输入框）；再点回语音模式
-- 空态文案指向明确：**「按住🎤说话，或点⌨打字」**（不得再出现「说点什么，或按住下方按钮说话」等指向不明文案）
+- ＋: ~30×30 circular light-gray background; tap to open the add-resource panel (four kinds).
+- **Main button: flex:1 fills the width, near-black background (#1A1A1A) with white text, ~48pt tall,
+  ~24pt corner radius, centered "🎤 Hold to talk" (14–15pt bold) — press to start recording.**
+- ⌨: ~30×30 circular light-gray keyboard icon; tap to switch to text input (keyboard + input field appear);
+  tap again to return to voice mode.
+- The empty-state caption must point clearly: **"Hold 🎤 to talk, or tap ⌨ to type"** (no more vague
+  copy like "Say something, or hold the button below").
 
-## 3. 按住态（满底波形界面）— 本次核心新设计
+## 3. Hold state (full-bleed waveform) — the core new design of this revision
 
-按住主按钮后，输入条区域切换为**满底波形界面**（用户已确认，区别于旧版红条/蓝条）：
+After pressing and holding the main button, the input bar switches to a **full-bleed waveform UI**
+(confirmed by the user; distinct from the old red/blue bar):
 
-- **波形**：一组竖条（约 18–20 根，宽 5–6pt，圆角 2–3pt，红色 #FF3B30），高度各异（约 12–64pt），**按住时随语音音量起伏动画（动图感）**——由 SpeechRecognizer meterLevel 驱动（WaveView 已有，接好即可）
-- 波形上方小字「正在听…」
-- 波形下方居中粗体「**松手发送 · 上移取消**」
-- **区域形状：矩形、无弧线、无圆角边框、填满容器宽度；向下延展：波形区域贴近屏幕底部/容器底部，下方留更大空间**（相对豆包实拍更满、更向下）
-- 交互保留：松手发送；上滑（约 -80pt）取消
+- **Waveform**: a row of vertical bars (~18–20 bars, 5–6pt wide, 2–3pt radius, red #FF3B30), varying in
+  height (~12–64pt), **animated by the live voice level while held** (feels like a GIF) — driven by
+  SpeechRecognizer's meterLevel (WaveView already exists; just wire it up).
+- Small text "Listening…" above the waveform.
+- Centered bold "**Release to send · slide up to cancel**" below the waveform.
+- **Shape: rectangle, no arc, no rounded border, fills the container width; extends downward: the waveform
+  area hugs the bottom of the screen / container, with more space below it** (fuller and lower than the
+  Doubao reference).
+- Interactions kept: release to send; slide up (~-80pt) to cancel.
 
-## 4. 验收清单（全部通过才算完成）
+## 4. Acceptance checklist (all must pass)
 
-1. 构建（命令原样，**不传任何签名覆盖参数**）：
+1. Build (verbatim, **no code-signing overrides**):
    `xcodebuild -project VoxSign.xcodeproj -scheme VoxSign -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath /tmp/vhs-v4-dd build`
-2. 42 单测全绿
-3. 模拟器三态实图（干净、无系统弹窗）：默认态 / 按住态（录音态）
-   - **UI 测试需命令行环境变量 `TEST_TARGET_NAME=VoxSign`**（否则 Code=108）
-   - 通知授权弹窗在 UI 测试内点掉（或预写通知授权状态）
-   - 模拟器按住态截图可行：SpeechRecognizer.start() 按下瞬间置 isRecording=true（UI 立即反馈）
-4. 真机 ipa V4（ai.voxsign.ios，约 1.18MB），codesign TeamID 6ASMXVQHKK
-5. git commit 到 ui-v3-doubao（不 push）；**harness-output/ 在途数据禁碰禁提交**；用户并行流程可能随时提交改动（用 reflog/git log 核对，避免重复提交）
+2. Unit tests all green.
+3. Simulator three-state screenshots (clean, no system alerts): default / hold (recording).
+   - **UI tests need the env var `TEST_TARGET_NAME=VoxSign`** (otherwise Code=108).
+   - The notification permission alert is dismissed inside the UI test (or pre-authorized).
+   - Simulator hold-state screenshot works: SpeechRecognizer.start() sets isRecording=true the moment the
+     button is pressed (the UI gives immediate feedback).
+4. Real-device ipa V4 (ai.voxsign.ios), codesign TeamID 6ASMXVQHKK.
+5. git commit to the working branch (no push); **do not touch or commit in-flight data under harness-output/**;
+   the user's parallel flow may commit changes at any time (cross-check with reflog / git log to avoid duplicates).
 
-## 5. 交付
+## 5. Deliverables
 
-- 模拟器实图：默认态、按住态（PNG，路径清晰）
-- 真机 ipa 路径 + 校验信息（bid/文案/签名）
-- commit 信息（hash + message）
+- Simulator screenshots: default state, hold state (PNG, clear paths).
+- Real-device ipa path + verification info (bundle id / copy / signature).
+- Commit info (hash + message).

@@ -2,27 +2,27 @@
 //  SessionListView.swift
 //  VoxSign
 //
-//  豆包式多会话左侧抽屉（V6：从 sheet 弹窗改为左侧滑出，左右切开可见更多内容）：
-//  - 按 updatedAt 降序展示历史会话
-//  - 点击切换会话并关闭抽屉；滑动删除（仅剩一个时静默忽略）
-//  - 头部右上"新建会话"入口
+//  Doubao-style multi-session left drawer (V6: moved from a sheet to a left slide-out, split left/right to show more):
+//  - Lists history sessions sorted by updatedAt descending
+//  - Tap to switch session and close the drawer; swipe to delete (silently ignored when only one remains)
+//  - Top-right "New session" entry in the header
 //
 
 import SwiftUI
 
 struct SessionDrawerView: View {
     @EnvironmentObject var model: AppModel
-    /// 关闭抽屉（由 RootView 注入，带动画）。
+    /// Close the drawer (injected by RootView, animated).
     var onClose: () -> Void
-    /// 打开设置（V6.1：设置入口收进抽屉左下角）。
+    /// Open Settings (V6.1: the Settings entry moved to the drawer's bottom-left).
     var onSettings: () -> Void
 
-    /// V6.2 折叠状态：默认全展开，单击容器行折叠/展开（文件夹关系）。
+    /// V6.2 collapse state: fully expanded by default; tap a container row to collapse/expand (folder relationship).
     @State private var collapsed: Set<String> = []
-    /// V6.3 待归类会话（左滑「归类」弹出面板）。
+    /// V6.3 session pending filing (left-swipe "File" opens the panel).
     @State private var classifyTarget: ChatSession?
 
-    /// 按 updatedAt 降序排列（最近聊过的在前）。
+    /// Sorted by updatedAt descending (most recent first).
     private var sorted: [ChatSession] {
         model.sessions.sorted { $0.updatedAt > $1.updatedAt }
     }
@@ -48,7 +48,7 @@ struct SessionDrawerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 抽屉头部：X 关闭 | 标题"会话" | 右上"新建会话"
+            // Drawer header: X close | title "Sessions" | top-right "New session"
             HStack(spacing: 8) {
                 Button {
                     onClose()
@@ -64,7 +64,7 @@ struct SessionDrawerView: View {
 
                 Spacer()
 
-                Text("会话")
+                Text("Sessions")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.black)
 
@@ -74,7 +74,7 @@ struct SessionDrawerView: View {
                     model.newSession()
                     onClose()
                 } label: {
-                    Label("新建", systemImage: "square.and.pencil")
+                    Label("New", systemImage: "square.and.pencil")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black)
                         .padding(.horizontal, 10)
@@ -89,9 +89,9 @@ struct SessionDrawerView: View {
 
             Divider()
 
-            // V6.3 列表：未分组置顶（先聊后归）→ 域组 → 角色组；容器行单击折叠/展开
+            // V6.3 list: ungrouped on top (talk-then-file) -> domain groups -> role groups; tap a container row to collapse/expand
             List {
-                // 未分组（新会话默认落点）
+                // Ungrouped (where new sessions land by default)
                 if !ungrouped.isEmpty {
                     Section {
                         if !collapsed.contains("__ungrouped__") {
@@ -107,7 +107,7 @@ struct SessionDrawerView: View {
                                 Image(systemName: "tray")
                                     .font(.system(size: 13))
                                     .foregroundColor(.secondary)
-                                Text("未分组")
+                                Text("Ungrouped")
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundColor(.primary)
                                 Text("\(ungrouped.count)")
@@ -125,7 +125,7 @@ struct SessionDrawerView: View {
                     }
                 }
 
-                // 域组
+                // Domain groups
                 if !domainContainers.isEmpty {
                     ForEach(domainContainers) { c in
                         Section {
@@ -140,7 +140,7 @@ struct SessionDrawerView: View {
                     }
                 }
 
-                // 角色组
+                // Role groups
                 if !roleContainers.isEmpty {
                     ForEach(roleContainers) { c in
                         Section {
@@ -161,10 +161,10 @@ struct SessionDrawerView: View {
                             Image(systemName: "bubble.left.and.bubble.right")
                                 .font(.system(size: 22))
                                 .foregroundColor(Color.black.opacity(0.25))
-                            Text("暂无历史会话")
+                            Text("No sessions yet")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
-                            Text("点右上「新建」开始一段新对话")
+                            Text(NSLocalizedString("Tap \"New\" in the top-right to start a new chat", comment: ""))
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
@@ -177,14 +177,14 @@ struct SessionDrawerView: View {
 
             Divider()
 
-            // 左下角：设置入口（V6.1：设置不再放右上…菜单，收进抽屉底部）
+            // Bottom-left: Settings entry (V6.1: Settings moved out of the top-right … menu into the drawer footer)
             Button {
                 onSettings()
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 14, weight: .medium))
-                    Text("设置")
+                    Text("Settings")
                         .font(.system(size: 14, weight: .medium))
                     Spacer()
                 }
@@ -204,9 +204,9 @@ struct SessionDrawerView: View {
         }
     }
 
-    // MARK: - V6.2 分组行
+    // MARK: - V6.2 grouped rows
 
-    /// 会话行（点选切换；左滑归类/移回；右滑删除）。
+    /// Session row (tap to switch; left-swipe to file/unfile; right-swipe to delete).
     private func sessionRow(_ s: ChatSession) -> some View {
         SessionRow(session: s,
                    isCurrent: s.id == model.currentSessionID,
@@ -218,30 +218,30 @@ struct SessionDrawerView: View {
                        Button {
                            classifyTarget = s
                        } label: {
-                           Label("归类", systemImage: "folder.badge.plus")
+                           Label("File", systemImage: "folder.badge.plus")
                        }
                        .tint(.blue)
-                       // 已归类 → 可移回未分组
+                       // Already filed -> can move back to ungrouped
                        if s.containerID != nil {
                            Button {
                                model.unclassifySession(s.id)
                            } label: {
-                               Label("移回", systemImage: "arrow.uturn.backward")
+                               Label("Unfile", systemImage: "arrow.uturn.backward")
                            }
                            .tint(.gray)
                        }
                    }
                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                        Button(role: .destructive) {
-                           // deleteSession 返回 false（仅剩一个）时静默忽略。
+                           // deleteSession returns false (only one left) -> silently ignore.
                            _ = model.deleteSession(s.id)
                        } label: {
-                           Label("删除", systemImage: "trash")
+                           Label("Delete", systemImage: "trash")
                        }
                    }
     }
 
-    /// 容器头（文件夹行）：单击折叠/展开。
+    /// Container header (folder row): tap to collapse/expand.
     private func containerHeader(_ c: ContainerItem) -> some View {
         Button {
             toggle(c.id)
@@ -268,7 +268,7 @@ struct SessionDrawerView: View {
     }
 }
 
-// MARK: - 单行（标题 + 更新时间 + 当前标记）
+// MARK: - Single row (title + update time + current marker)
 
 private struct SessionRow: View {
     let session: ChatSession
@@ -277,13 +277,13 @@ private struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // 当前会话左侧蓝点标记
+            // Blue dot on the left of the current session
             Circle()
                 .fill(isCurrent ? VSColor.blue : Color.clear)
                 .frame(width: 5, height: 5)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.title.isEmpty ? "新会话" : session.title)
+                Text(session.title.isEmpty ? "New Chat" : session.title)
                     .font(.system(size: 15, weight: isCurrent ? .semibold : .regular))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -293,7 +293,7 @@ private struct SessionRow: View {
             }
             Spacer()
             if isCurrent {
-                Text("当前")
+                Text("Current")
                     .font(.system(size: 11))
                     .foregroundColor(VSColor.blue)
             }
@@ -302,7 +302,7 @@ private struct SessionRow: View {
         .onTapGesture { onTap() }
     }
 
-    /// 相对时间：今天→HH:mm；本周→周X；更早→MM-dd。
+    /// Relative time: today -> HH:mm; this year -> MM-dd HH:mm; earlier -> yyyy-MM-dd.
     private func relativeTime(_ d: Date) -> String {
         let f = DateFormatter()
         if Calendar.current.isDateInToday(d) {

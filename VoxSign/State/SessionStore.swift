@@ -2,21 +2,21 @@
 //  SessionStore.swift
 //  VoxSign
 //
-//  v2.4 多会话仓库：本地存储 + 会话列表（默认隐藏）。
-//  UserDefaults JSON 持久化（key "vhs-ios-sessions"），读写范式对齐 Net/SettingsStore.swift。
-//  观测式：App 启动读回，所有变更方法内显式 persist()。
+//  v2.4 multi-session store: local persistence + session list (hidden by default).
+//  UserDefaults JSON persistence (key "vhs-ios-sessions"); read/write pattern mirrors Net/SettingsStore.swift.
+//  Observed: read back on app launch; every mutating method calls persist() explicitly.
 //
 
 import Foundation
 import Combine
 
-/// 持久化载荷：整个 sessions 数组 + 当前会话 id。
+/// Persisted payload: the whole sessions array + current session id.
 private struct PersistedState: Codable, Equatable {
     var sessions: [ChatSession]
     var currentID: String
 }
 
-/// 会话仓库（单例）。线程模型：与 AppModel 一致，主 actor / 串行访问下调用。
+/// Session store (singleton). Thread model: same as AppModel; called on the main actor / serialized access.
 final class SessionStore: ObservableObject {
     static let shared = SessionStore()
 
@@ -24,47 +24,47 @@ final class SessionStore: ObservableObject {
     private let key = "vhs-ios-sessions"
     private let containerKey = "vhs-ios-containers"
 
-    /// 会话列表（顺序即创建顺序；列表排序由视图按 updatedAt 决定）。
+    /// Session list (order = creation order; the view sorts by updatedAt).
     @Published var sessions: [ChatSession] = []
-    /// 当前会话 id。
+    /// Current session id.
     @Published var currentSessionID: String = ""
-    /// V6.2 容器（角色/域）列表。
+    /// V6.2 containers (roles/domains).
     @Published var containers: [ContainerItem] = []
 
-    /// - Parameter defaults: 注入便于单测隔离（默认 .standard）。
+    /// - Parameter defaults: injected for unit-test isolation (default .standard).
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: key),
            let persisted = try? JSONDecoder().decode(PersistedState.self, from: data) {
             sessions = persisted.sessions
-            // 兼容老数据：当前 id 失效时回退到第一个会话。
+            // Back-compat for old data: if the current id is invalid, fall back to the first session.
             if sessions.contains(where: { $0.id == persisted.currentID }) {
                 currentSessionID = persisted.currentID
             } else {
                 currentSessionID = sessions.first?.id ?? ""
             }
         }
-        // V6.2 容器独立持久化（key 分开，不动旧 sessions 载荷）。
+        // V6.2 containers persisted separately (own key; does not touch the old sessions payload).
         if let cdata = defaults.data(forKey: containerKey),
            let cs = try? JSONDecoder().decode([ContainerItem].self, from: cdata) {
             containers = cs
         }
     }
 
-    // MARK: - 会话生命周期
+    // MARK: - Session lifecycle
 
-    /// 无会话时创建"新会话"并设为当前；幂等。
+    /// When there are no sessions, create "New Chat" and make it current; idempotent.
     func ensureInitialSession() {
         guard sessions.isEmpty else { return }
-        let s = makeSession(title: "新会话")
+        let s = makeSession(title: "New Chat")
         sessions.append(s)
         currentSessionID = s.id
         persist()
     }
 
-    /// 新建会话（追加 + 切当前 + 持久化）。
+    /// Create a session (append + switch current + persist).
     @discardableResult
-    func createSession(title: String = "新会话") -> ChatSession {
+    func createSession(title: String = "New Chat") -> ChatSession {
         let s = makeSession(title: title)
         sessions.append(s)
         currentSessionID = s.id
@@ -72,9 +72,9 @@ final class SessionStore: ObservableObject {
         return s
     }
 
-    /// V6.2 新建归属会话：挂到指定容器（角色/域）之下。
+    /// V6.2 create an owned session under a container (role/domain).
     @discardableResult
-    func createSession(title: String = "新会话",
+    func createSession(title: String = "New Chat",
                        containerKind: ContainerKind,
                        containerID: String) -> ChatSession {
         let s = makeSession(title: title,
@@ -86,18 +86,18 @@ final class SessionStore: ObservableObject {
         return s
     }
 
-    // MARK: - V6.2 容器（角色/域）
+    // MARK: - V6.2 containers (roles/domains)
 
-    /// 容器列表按 kind 过滤。
+    /// Filter the container list by kind.
     func containers(of kind: ContainerKind) -> [ContainerItem] {
         containers.filter { $0.kind == kind }
     }
 
-    /// 创建或复用容器（同名同 kind 幂等返回已有）。持久化。
+    /// Create or reuse a container (same name+kind returns the existing one idempotently). Persisted.
     @discardableResult
     func upsertContainer(kind: ContainerKind, name: String) -> ContainerItem {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalName = trimmed.isEmpty ? (kind == .role ? "新角色" : "新域") : trimmed
+        let finalName = trimmed.isEmpty ? (kind == .role ? "New Role" : "New Domain") : trimmed
         if let hit = containers.first(where: { $0.kind == kind && $0.name == finalName }) {
             return hit
         }
@@ -107,7 +107,7 @@ final class SessionStore: ObservableObject {
         return c
     }
 
-    /// 删除容器（其下会话同时删除；至少保留一个会话时允许删除容器）。
+    /// Delete a container (its child sessions are deleted too; allowed as long as at least one session remains).
     @discardableResult
     func deleteContainer(id: String) -> Bool {
         guard let c = containers.first(where: { $0.id == id }) else { return false }
@@ -122,7 +122,7 @@ final class SessionStore: ObservableObject {
         return true
     }
 
-    /// 删除会话；sessions.count <= 1 时拒绝（返回 false）。
+    /// Delete a session; rejected when sessions.count <= 1 (returns false).
     @discardableResult
     func deleteSession(id: String) -> Bool {
         guard sessions.count > 1 else { return false }
@@ -142,9 +142,9 @@ final class SessionStore: ObservableObject {
         persist()
     }
 
-    // MARK: - V6.3 先聊后归：会话归类/移回
+    // MARK: - V6.3 talk-then-file: filing / unfiling sessions
 
-    /// 把会话归入指定容器（角色/域）。
+    /// File a session into a container (role/domain).
     func setContainer(sessionID: String, kind: ContainerKind, containerID: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         sessions[idx].containerKind = kind
@@ -153,7 +153,7 @@ final class SessionStore: ObservableObject {
         persist()
     }
 
-    /// 移回未分组（清空归属）。
+    /// Move back to ungrouped (clear ownership).
     func clearContainer(sessionID: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         sessions[idx].containerKind = nil
@@ -162,16 +162,16 @@ final class SessionStore: ObservableObject {
         persist()
     }
 
-    /// 切当前 + 持久化。
+    /// Switch current + persist.
     func switchTo(id: String) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         currentSessionID = id
         persist()
     }
 
-    // MARK: - 消息
+    // MARK: - Messages
 
-    /// 覆盖写回某会话的消息，并刷新 updatedAt。
+    /// Overwrite a session's messages and refresh updatedAt.
     func saveMessages(_ messages: [StoredMessage], for sessionID: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         sessions[idx].messages = messages
@@ -183,20 +183,20 @@ final class SessionStore: ObservableObject {
         sessions.first { $0.id == sessionID }?.messages ?? []
     }
 
-    /// 标记某会话有更新（updatedAt = now）+ 持久化。
+    /// Mark a session as updated (updatedAt = now) + persist.
     func touch(sessionID: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         sessions[idx].updatedAt = Date()
         persist()
     }
 
-    // MARK: - 便捷访问
+    // MARK: - Convenience access
 
     var currentSession: ChatSession? {
         sessions.first { $0.id == currentSessionID } ?? sessions.first
     }
 
-    // MARK: - 内部
+    // MARK: - Internal
 
     private func makeSession(title: String) -> ChatSession {
         ChatSession(id: UUID().uuidString,

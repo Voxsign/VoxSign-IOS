@@ -32,8 +32,9 @@
                ReferencedContainer = "container:VoxSign.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <!-- UITest runner(net.voxsign.ios.uitests.xctrunner)：模拟器无需签名可跑 UI 用例
-              （组织者 20:10 恢复 TestAction）；真机跑需登录 Xcode Apple ID 建 runner 描述文件。 -->
+         <!-- UITest runner (net.voxsign.ios.uitests.xctrunner): runs UI cases on the
+              simulator without code signing. On a real device, sign in with an Apple ID
+              in Xcode to create a runner provisioning profile. -->
          <TestableReference
             skipped = "NO">
             <BuildableReference

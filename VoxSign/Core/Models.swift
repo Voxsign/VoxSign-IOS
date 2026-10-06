@@ -8,18 +8,19 @@
 
 import Foundation
 
-/// GET /v1/tasks/{id} 的响应视图（对齐 INTERACT-v1；字段缺失时按缺省处理，不得因缺字段崩溃）。
+/// Response view for GET /v1/tasks/{id} (aligned with INTERACT-v1; missing fields are
+/// treated as defaults and must never crash on absent keys).
 struct TaskView: Equatable {
     var taskId: String?
     var status: String?          // running/need_ask/need_confirm/done/canceled/interrupted
     var question: String?
     var options: [TaskOption]?
-    var receipt: String?         // 四行文本字符串
+    var receipt: String?         // four-line receipt text
     var attribution: String?
     var reversible: Bool?
     var error: String?
 
-    /// 容错构造：把任意字典合成为视图（测试与 SSE done 事件复用）。
+    /// Fault-tolerant initializer: build a view from any dictionary (shared by tests and SSE done events).
     init(taskId: String? = nil,
          status: String? = nil,
          question: String? = nil,
@@ -39,44 +40,45 @@ struct TaskView: Equatable {
     }
 }
 
-/// need_ask 候选按钮：{id,label}。
+/// need_ask candidate button: {id,label}.
 struct TaskOption: Equatable, Codable {
     let id: String
     let label: String
 }
 
-/// 回执四行解析结果（动作/文件/结果/撤销）。
+/// Parsed result of the four-line receipt (Action / File / Result / Undo).
 struct Receipt: Equatable {
     var action: String = ""
     var files: String = ""
     var result: String = ""
     var undo: String = ""
-    /// v2.3（用户需求：微信式反馈"处理完了之后有多少时间"）：本轮处理耗时（秒），UI 显示"已处理 X 秒"。
+    /// v2.3 (WeChat-style feedback "how long it took"): processing time for this turn in seconds;
+    /// the UI shows "Processed in Xs".
     var elapsedSec: Double = 0
 }
 
-/// 撤销按钮裁决结果。
+/// Verdict for the undo button.
 struct UndoInfo: Equatable {
     var show: Bool = false
     var backup: String = ""
     var irreversible: Bool = false
 }
 
-/// 轻标签徽章（kind: state/intent/domain/risk；tone: blue/green/red/amber/gray）。
-/// v2.4：增加 Codable 遵循（会话历史持久化需要），字段与成员级初始化器保持不变。
+/// Lightweight badge (kind: state/intent/domain/risk; tone: blue/green/red/amber/gray).
+/// v2.4: gains Codable (needed for session persistence); fields and memberwise init are unchanged.
 struct Badge: Equatable, Codable {
     let kind: String
     let label: String
     let tone: String
 }
 
-/// 一屏一个决策点。
+/// One decision point per screen.
 enum DecisionKind: String, Equatable {
-    case confirm     // 红色强确认条（answer:"执行"）
-    case ask         // 回问候选按钮（answer:option.id）
-    case error       // canceled/interrupted 系统错误条
-    case receipt     // 绿色回执卡
-    case running     // 执行卡滚动
+    case confirm     // red confirm bar (answer:"execute")
+    case ask         // follow-up candidate buttons (answer:option.id)
+    case error       // canceled/interrupted system error bar
+    case receipt     // green receipt card
+    case running     // rolling exec card
     case idle
 }
 
@@ -89,7 +91,7 @@ struct DecisionPoint: Equatable {
     var undo: UndoInfo = UndoInfo()
 }
 
-/// 打断红色系统条三语义（已生效/未执行/可动作）。
+/// Three meanings of the red interrupt system bar (Applied / Not executed / Actionable).
 struct SystemBarInfo: Equatable {
     var title: String = ""
     var active: [String] = []
@@ -98,16 +100,16 @@ struct SystemBarInfo: Equatable {
     var closable: Bool = true
 }
 
-/// 角色（planner/executor/verifier）。
+/// Role (planner/executor/verifier).
 struct RoleInfo: Equatable {
     let id: String
     let label: String
     var active: Bool
 }
 
-// MARK: - v2.4 附件（资料）
+// MARK: - v2.4 attachments
 
-/// 附件种类：文本粘贴 / URL / 图片（相册）/ 文件（Files App）。
+/// Attachment kind: pasted text / URL / image (photo library) / file (Files app).
 enum AttachmentKind: String, Codable {
     case text
     case url
@@ -115,20 +117,20 @@ enum AttachmentKind: String, Codable {
     case file
 }
 
-/// 一条随消息提交给 harness 上下文的资料附件。
+/// A resource attachment submitted to the harness context with a message.
 struct Attachment: Identifiable, Codable, Equatable {
     var id: String            // UUID().uuidString
     var kind: AttachmentKind
     var title: String
-    var text: String?         // text 类=正文；url 类=URL 字符串
-    var fileName: String?     // file 类=文件名
-    var localPath: String?    // image/file 类=本地路径（预览用）
+    var text: String?         // text kind = body; url kind = URL string
+    var fileName: String?     // file kind = file name
+    var localPath: String?    // image/file kind = local path (for preview)
 }
 
-// MARK: - v2.4 多会话持久化模型
+// MARK: - v2.4 multi-session persistence model
 
-/// 会话中一条可持久化消息（用户气泡 / harness 气泡 / 回执行）。
-/// typing/execCard 中间态不持久化。
+/// A persistent message in a session (user bubble / harness bubble / receipt row).
+/// typing/execCard intermediate states are not persisted.
 struct StoredMessage: Identifiable, Codable, Equatable {
     var id: String
     var role: String          // "user" | "harness"
@@ -139,10 +141,10 @@ struct StoredMessage: Identifiable, Codable, Equatable {
     var attachments: [Attachment] = []
     var costTokens: Int? = nil
     var timestamp: Date = Date()
-    var elapsedSec: Double? = nil   // 回执"已处理 X 秒"
+    var elapsedSec: Double? = nil   // receipt "Processed in Xs"
 }
 
-/// 一个本地会话（多会话：默认隐藏，大部分时候是单对话流）。
+/// A local session (multi-session: hidden by default, usually a single conversation).
 struct ChatSession: Identifiable, Codable, Equatable {
     var id: String
     var title: String
@@ -150,19 +152,21 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var updatedAt: Date
     var serverBase: String? = nil
     var messages: [StoredMessage] = []
-    // V6.2 会话归属：每个会话挂在「角色」或「域」之一（nil=未分组，兼容旧数据）。
+    // V6.2 session ownership: each session hangs on a "role" or "domain" container
+    // (nil = ungrouped, backward compatible with old data).
     var containerKind: ContainerKind? = nil
     var containerID: String? = nil
 }
 
-// MARK: - V6.2 角色（Role）/ 域（Domain）容器
+// MARK: - V6.2 Role / Domain containers
 
-/// 容器类型：角色（执行者身份）/ 域（话题·项目·空间）。
+/// Container kind: role (actor identity) / domain (topic · project · space).
 enum ContainerKind: String, Codable {
     case role, domain
 }
 
-/// 容器（文件夹）：角色或域。会话按 containerID 归入容器；容器可折叠、可内化归档。
+/// Container (folder): role or domain. Sessions are grouped under a container by containerID;
+/// containers can be collapsed and archived.
 struct ContainerItem: Identifiable, Codable, Equatable {
     var id: String
     var kind: ContainerKind
@@ -170,21 +174,21 @@ struct ContainerItem: Identifiable, Codable, Equatable {
     var createdAt: Date = Date()
 }
 
-// MARK: - v2.4 顶栏状态点（纯函数，视图与测试共用）
+// MARK: - v2.4 top-bar status dot (pure function, shared by view and tests)
 
-/// 状态点色调。
+/// Status dot tone.
 enum DotTone {
-    case blue    // 在线·任务执行中/空闲
-    case red     // 离线（无条件）
-    case gray    // 重连中 / 未知
-    case orange  // 在线·等待用户确认/选择
+    case blue    // online · running/idle
+    case red     // offline (unconditional)
+    case gray    // reconnecting / unknown
+    case orange  // online · waiting for user confirm/select
 }
 
-/// 顶栏状态点裁决：连接态 × harness 态 → 色调。
+/// Top-bar dot verdict: connection state x harness state -> tone.
 enum TopBarDot {
-    /// conn: ConnectivityService.ConnectionState；harness: AppModel.HarnessState。
-    /// 规则：offline→.red（无条件）；online: decision→.orange、busy→.blue、idle→.blue；
-    /// reconnecting/unknown→.gray。
+    /// conn: ConnectivityService.ConnectionState; harness: AppModel.HarnessState.
+    /// Rules: offline -> .red (unconditional); online: decision -> .orange, busy -> .blue, idle -> .blue;
+    /// reconnecting/unknown -> .gray.
     static func tone(conn: ConnectionState, harness: HarnessState) -> DotTone {
         switch conn {
         case .offline:
@@ -200,14 +204,14 @@ enum TopBarDot {
     }
 }
 
-// MARK: - 消耗用量文案（纯函数，视图与测试共用）
+// MARK: - Usage caption (pure function, shared by view and tests)
 
-/// 消耗用量文案：服务端不回传（nil）时整行不显示；回传时显示 "消耗 n"。
-/// 服务端协议当前从不回传 token 用量字段，costTokens 恒为 nil；
-/// 本纯函数把"隐式 if-let 容错"显式化，作为开源化协议解耦依据。
+/// Usage caption: when the server returns nil the whole row is hidden; otherwise show "Used n".
+/// The server protocol currently never returns a token usage field, so costTokens is always nil;
+/// this pure function makes the implicit if-let tolerance explicit as an open-source decoupling point.
 enum CostText {
     static func caption(for tokens: Int?) -> String? {
         guard let tokens else { return nil }
-        return "消耗 \(tokens)"
+        return "Used \(tokens)"
     }
 }

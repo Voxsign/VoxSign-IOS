@@ -1,16 +1,16 @@
 //
 //  InputBarView.swift
-//  V4 方案B（用户最终确认稿 2026-10-05）：豆包式底部输入条
-//  - 默认态（语音模式）：[圆形＋] | [🎤 按住说话 深色胶囊 flex:1, 56pt] | [圆形⌨]
-//  - 点 ⌨ → 文字模式：输入框 + 发送箭头（有文本时出现）；再点 ⌨ 切回语音
-//  - 按住大按钮 → 满底波形界面：深色 #1a1a1a 矩形（无弧线/无圆角、向下延展贴屏幕底沿）
-//    ① 顶部「正在听…」② 中部 20 根 #ff3b30 竖形声波条（随 meterLevel 起伏+相位呼吸）
-//    ③ 底部加粗「松手发送 · 上移取消」
-//  - 上滑 -80pt → 取消态（底部换「松开 取消」，可滑回继续录音）；松手发送
-//  - 录音期间输入条淡出但保留在层级中（mic 手势宿主不移除/不禁用 hit-testing）
-//  - 输入区上方状态条仅保留 校准中 / 空录音重说 / 识别失败 / 语音不可用 四态
-//  - 【卡死修复保护项（提交 5f54837）不得回退】holdGesture 双宿主 / holdInitiated 防重入 /
-//    极轻点竞态兜底 / isRecording 置 true 无按压看门狗
+//  V4 Plan B (user-finalized 2026-10-05): Doubao-style bottom input bar
+//  - Default (voice mode): [circle +] | [🎤 Hold to talk dark capsule flex:1, 56pt] | [circle ⌨]
+//  - Tap ⌨ -> text mode: input field + send arrow (appears when there is text); tap ⌨ again to return to voice
+//  - Hold the big button -> full-bleed waveform: dark #1a1a1a rectangle (no rounding, extends to the bottom edge)
+//    ① top "Listening…" ② center 20 #ff3b30 vertical bars (follow meterLevel + phase breathing)
+//    ③ bottom bold "Release to send · Slide up to cancel"
+//  - Swipe up -80pt -> cancel state (bottom switches to "Release to cancel", slide back to keep recording); release to send
+//  - While recording the input bar fades but stays in the hierarchy (the mic gesture host is not removed/disabled)
+//  - The status strip above the input area keeps only four states: calibrating / empty recording / recognition failed / voice unavailable
+//  - [Freeze-fix protections (commit 5f54837) must not regress] holdGesture dual host / holdInitiated anti-reentry /
+//    light-tap race fallback / isRecording=true watchdog without a press
 //
 
 import SwiftUI
@@ -21,28 +21,28 @@ struct InputBarView: View {
     @EnvironmentObject var speech: SpeechRecognizer
     #endif
 
-    // 附件面板（＋ → Sheet）
+    // Attachment panel (+ -> Sheet)
     @State private var showAttachPanel: Bool = false
 
-    // V4 方案B：文字输入模式（默认 false=语音大按钮模式；点 ⌨ 切换）
+    // V4 Plan B: text-input mode (default false = big voice button; tap ⌨ to toggle)
     @State private var useTextInput: Bool = false
 
-    // v2.1 I14：3s 无识别提示（不显示逐字期间的补偿反馈）
+    // v2.1 I14: 3s no-recognition hint (not shown during partial recognition)
     @State private var transcriptSnap: String = ""
     @State private var silentSeconds: Int = 0
     @State private var noSpeechDetected: Bool = false
-    // UI v3：上滑取消态（-80pt 阈值，可滑回继续录音——豆包同款手感）
+    // UI v3: swipe-up cancel state (-80pt threshold, slide back to keep recording — same feel as Doubao)
     @State private var cancelling: Bool = false
-    // 【加固1】本轮按压是否由本视图手势发起：快速连按/双宿主重复按压时据此挡住二次 start，
-    // 堵住 SpeechRecognizer 异步重入窗口被 start() 内 defer 架空的竞态（R2）。
+    // [Hardening 1] whether this round's press was initiated by this view's gesture: on rapid taps / dual-host
+    // double presses this blocks a second start, closing the async re-entry race in SpeechRecognizer (R2).
     @State private var holdInitiated: Bool = false
-    // V6.4 即时视觉态：按下立刻显示按住态（不等语音引擎异步启动）。
-    // 视觉先于引擎——"一按下去马上反应"，波形呼吸动画立即出现，meterLevel 随后接入。
+    // V6.4 instant visual state: show the held state on press immediately (don't wait for the async engine).
+    // Visual precedes the engine — "responds on press at once"; the breathing waveform appears now, meterLevel plugs in later.
     @State private var pressActive: Bool = false
 
     private var isTyping: Bool { !model.inputText.isEmpty }
 
-    /// V6：连接在线才可输入（顶栏红点=离线 → 输入条禁用并提示切换机器）。
+    /// V6: input enabled only when online (top-bar red dot = offline -> input bar disabled with a hint to switch machine).
     private var isConnected: Bool {
         ConnectivityService.shared.state == .online
     }
@@ -50,7 +50,7 @@ struct InputBarView: View {
     var body: some View {
         VStack(spacing: 0) {
             #if canImport(Speech)
-            // 语音状态条（校准中/空录音/识别失败/不可用 四态，按住/松手期间显示在输入区上方）。
+            // Voice status strip (calibrating / empty recording / recognition failed / unavailable; shown above the input area while holding/releasing).
             voiceStatusSection
             #endif
 
@@ -61,7 +61,7 @@ struct InputBarView: View {
             }
         }
         .background(.ultraThinMaterial)
-        // 输入条顶部 0.5pt 极淡描边（豆包式）。
+        // 0.5pt hairline on top of the input bar (Doubao-style).
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(Color.black.opacity(0.08))
@@ -73,11 +73,11 @@ struct InputBarView: View {
         }
     }
 
-    /// V6 离线提示条：顶栏红点（未连接）时不可输入，提示点上方机器名切换机器。
+    /// V6 offline hint bar: when the top bar shows the red dot (disconnected), input is disabled; hint to tap the machine name above to switch.
     private var offlineBar: some View {
         HStack {
             Spacer()
-            Label("未连接 · 点上方机器名切换", systemImage: "wifi.slash")
+            Label(NSLocalizedString("Offline · tap the machine name above to switch", comment: ""), systemImage: "wifi.slash")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
@@ -91,13 +91,13 @@ struct InputBarView: View {
         .accessibilityIdentifier("vhs.offline")
     }
 
-    // MARK: - 输入行（方案B：语音大按钮 / 文字模式 / 录音态满底波形）
+    // MARK: - Input row (Plan B: big voice button / text mode / full-bleed recording waveform)
 
     private var inputRow: some View {
-        // ZStack 叠层：录音态时深色波形面板盖在整行之上；普通输入行不随录音移除——
-        // 【卡死修复】大按钮 voiceMainButton 必须留在层级中（opacity 0 淡出）且不加
-        // allowsHitTesting(false)：已开始的 DragGesture 依赖该视图存活持续收事件，
-        // onEnded 必然触发 → stopHold/cancelHold 执行 → isRecording 复位，绝不冻结。
+        // ZStack overlay: while recording the dark waveform panel covers the whole row; the normal input row is not
+        // removed during recording — [Freeze fix] the big voiceMainButton must stay in the hierarchy (opacity 0 fade)
+        // WITHOUT allowsHitTesting(false): the in-progress DragGesture depends on that view staying alive to keep
+        // receiving events, so onEnded always fires -> stopHold/cancelHold runs -> isRecording resets, never frozen.
         ZStack {
             normalInputRow
                 .opacity((speechRecording || pressActive) ? 0.0 : 1.0)
@@ -108,9 +108,10 @@ struct InputBarView: View {
             }
         }
         #if canImport(Speech)
-        // 【加固3-看门狗】isRecording 变 true 但本轮无手指按压（如首次授权弹窗后 start() 补启动，
-        // 或任何竞态残留）→ 立即 cancelHold 复位，绝不冻结。正常按压时 holdInitiated 在
-        // onChanged 同步置位、先于异步置位 → 不会误取消；cancelHold 内 isRecording=false 不循环触发。
+        // [Hardening 3 - watchdog] isRecording becomes true but no finger is pressing this round (e.g. the start()
+        // kick after the first permission prompt, or any race residue) -> cancelHold immediately, never frozen.
+        // On a normal press holdInitiated is set synchronously in onChanged, before the async set -> no false cancel;
+        // cancelHold sets isRecording=false so it does not loop.
         .onChange(of: speech.isRecording) { recording in
             if recording && !holdInitiated { speech.cancelHold() }
         }
@@ -118,7 +119,7 @@ struct InputBarView: View {
         .animation(.easeOut(duration: 0.12), value: speechRecording)
     }
 
-    /// 默认输入行（语音大按钮模式 / 文字模式）。录音时整行 opacity 0 但仍在层级中。
+    /// Default input row (big voice button / text mode). While recording the whole row is opacity 0 but stays in the hierarchy.
     private var normalInputRow: some View {
         HStack(spacing: 10) {
             addAttachButton
@@ -134,8 +135,8 @@ struct InputBarView: View {
                         .allowsHitTesting(!speechRecording)
                 }
             } else {
-                // 语音大按钮：永不禁用 hit-testing（手势宿主，录音中透明命中维持拖拽连续）。
-                // 录音进行中断线时按钮灰化（0.35）但手势宿主保留，松手仍能复位。
+                // Big voice button: never disable hit-testing (it is the gesture host; transparent hits while recording keep the drag continuous).
+                // If the connection drops mid-recording the button dims (0.35) but the host stays, so release still resets.
                 voiceMainButton
                     .opacity(isConnected ? 1.0 : 0.35)
                 keyboardToggleButton
@@ -145,7 +146,7 @@ struct InputBarView: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
     }
 
-    /// 左：圆形 ＋ 按钮（30×30，浅灰圆底，加号 16pt secondary），弹出附件面板。
+    /// Left: circular + button (30x30, light-gray circle, 16pt secondary plus) which opens the attachment panel.
     private var addAttachButton: some View {
         Button {
             showAttachPanel = true
@@ -159,9 +160,9 @@ struct InputBarView: View {
         .accessibilityIdentifier("vhs.attach")
     }
 
-    /// 输入框（文字模式）：占位符「发消息或语音指令…」。
+    /// Input field (text mode): placeholder "Message or voice command…".
     private var textField: some View {
-        TextField("发消息或语音指令…", text: $model.inputText, axis: .vertical)
+        TextField(NSLocalizedString("Message or voice command…", comment: ""), text: $model.inputText, axis: .vertical)
             .lineLimit(...4)
             .font(.system(size: 15))
             .padding(.horizontal, 12).padding(.vertical, 9)
@@ -170,10 +171,10 @@ struct InputBarView: View {
             .accessibilityIdentifier("vhs.input")
     }
 
-    /// 中：超大「🎤 按住说话」深色胶囊主按钮（#1a1a1a、高 56pt、胶囊圆角=高度一半、占满剩余宽度）。
-    /// 【卡死修复-手势宿主】录音中淡出但不禁用 hit-testing——拖拽起始于此、录音期间持续收事件。
+    /// Center: oversized "🎤 Hold to talk" dark capsule button (#1a1a1a, 56pt tall, corner radius = half height, fills remaining width).
+    /// [Freeze fix - gesture host] fades while recording but keeps hit-testing — the drag starts here and keeps receiving events during recording.
     private var voiceMainButton: some View {
-        Text("🎤 按住说话")
+        Text(NSLocalizedString("🎤 Hold to talk", comment: ""))
             .font(.system(size: 17, weight: .semibold))
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
@@ -185,7 +186,7 @@ struct InputBarView: View {
             .gesture(holdGesture)
     }
 
-    /// 右：圆形 ⌨ 按钮（30×30，浅灰圆底，键盘图标 16pt secondary），切换文字输入模式。
+    /// Right: circular ⌨ button (30x30, light-gray circle, 16pt secondary keyboard icon) toggles text-input mode.
     private var keyboardToggleButton: some View {
         Button {
             useTextInput.toggle()
@@ -199,7 +200,7 @@ struct InputBarView: View {
         .accessibilityIdentifier("vhs.keyboard")
     }
 
-    /// 发送箭头（文字模式有文本时）。
+    /// Send arrow (when there is text in text mode).
     private var sendButton: some View {
         Button {
             model.send()
@@ -212,17 +213,17 @@ struct InputBarView: View {
         .disabled(model.decision != nil)
     }
 
-    // MARK: - 按住态：满底波形界面（方案B 用户确认稿）
+    // MARK: - Held state: full-bleed waveform (Plan B, user-finalized)
 
-    /// 几何（硬性）：矩形填满宽度、四角无圆角无弧线；背景 .ignoresSafeArea(edges:.bottom)
-    /// 向下延展贴屏幕底沿（沉到 home indicator 之下）；总高 260pt（V6：更高更满，不再"只显示一半"）；
-    /// 条组高 110pt；条组下方留 ~26pt 再放底部文案；底色 #1a1a1a，红条/红字突出。
-    /// 结构：① 顶部小字「正在听…」② 中部 20 根 #ff3b30 竖形声波条 ③ 底部加粗「松手发送 · 上移取消」。
-    /// 【卡死修复-双宿主】整块波形区域即录音态手势宿主（.gesture(holdGesture)）：
-    /// 松手/上滑/滑回落在任意处都触发 onEnded（cancelling→cancelHold 否则 stopHold），isRecording 必然复位。
+    /// Geometry (hard): rectangle fills the width, square corners no rounding; background .ignoresSafeArea(edges:.bottom)
+    /// extends to the bottom edge (below the home indicator); total height 260pt (V6: taller/fuller, not "half shown");
+    /// bars 110pt tall; ~26pt below the bars for the bottom caption; background #1a1a1a, red bars/red text pop.
+    /// Structure: ① small top "Listening…" ② center 20 #ff3b30 vertical bars ③ bottom bold "Release to send · Slide up to cancel".
+    /// [Freeze fix - dual host] the whole waveform area is the held-state gesture host (.gesture(holdGesture)):
+    /// release / swipe-up / slide-back anywhere triggers onEnded (cancelling->cancelHold else stopHold), isRecording always resets.
     private var recordingHoldView: some View {
         VStack(spacing: 0) {
-            // V6.4 去掉顶部「正在听…」提示：按住态只有波形，识别过程不需要文字（机器转一转即可）。
+            // V6.4 dropped the top "Listening…" hint: the held state shows only the waveform; recognition needs no text.
 
             #if canImport(Speech)
             HoldWaveBars(meterLevel: speech.meterLevel)
@@ -237,21 +238,21 @@ struct InputBarView: View {
             Text(holdBarText)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(HoldWaveBars.barRed)
-                .padding(.top, 12)          // 条组下方留 ~12pt 再放底部文案
+                .padding(.top, 12)          // ~12pt below the bars before the bottom caption
                 .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 130)
-        // V6.7 更透明：极浅半透明白（0.15）几乎全透但保留层次，不发雾；红波形对比不受影响。
-        // （真机若显雾可降到 0.10——本参数为微调项）。
+        // V6.7 more transparent: very light translucent white (0.15), nearly clear but keeps hierarchy, no haze.
+        // (if a real device shows haze, drop to 0.10 — tuning knob).
         .background(Color.white.opacity(0.15))
-        // 向下延展：背景沉到 home indicator 之下，整体贴底不留空隙
+        // Extend down: background sinks below the home indicator, flush to the bottom with no gap.
         .ignoresSafeArea(edges: .bottom)
         .animation(.easeOut(duration: 0.12), value: cancelling)
-        // 【卡死修复-双宿主】手势宿主：录音中重新按压波形区域任意处也可接管手势；
-        // -80pt 阈值与可滑回逻辑由 holdGesture.onChanged/onEnded 内部语义保证，此处不变。
+        // [Freeze fix - dual host] gesture host: pressing anywhere on the waveform mid-recording can take over the gesture;
+        // the -80pt threshold and slide-back logic live inside holdGesture.onChanged/onEnded; unchanged here.
         .gesture(holdGesture)
-        // noSpeechDetected 计数定时器（原样迁移）。录音中每秒对比 transcript 快照累计静默秒数；非录音清零。
+        // noSpeechDetected timer (carried over). While recording, compare the transcript snapshot every second and count silent seconds; reset when not recording.
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             #if canImport(Speech)
             if speech.isRecording {
@@ -271,34 +272,34 @@ struct InputBarView: View {
         }
     }
 
-    /// 顶部文案：无语音（≥3s）→ “没听到声音，请说话”；否则 → “正在听…”。
+    /// Top caption: no voice (>=3s) -> "No sound heard, please speak"; otherwise -> "Listening…".
     private var holdTopText: String {
-        if noSpeechDetected { return "没听到声音，请说话" }
-        return "正在听…"
+        if noSpeechDetected { return NSLocalizedString("No sound heard, please speak", comment: "") }
+        return NSLocalizedString("Listening…", comment: "")
     }
 
-    /// 底部整行文案：取消 → “松开 取消”；否则 → “松手发送 · 上移取消”。
+    /// Bottom caption: cancelling -> "Release to cancel"; otherwise -> "Release to send · Slide up to cancel".
     private var holdBarText: String {
-        cancelling ? "松开 取消" : "松手发送 · 上移取消"
+        cancelling ? NSLocalizedString("Release to cancel", comment: "") : NSLocalizedString("Release to send · Slide up to cancel", comment: "")
     }
 
-    // MARK: - 按住态竖形声波条组（方案B 新建于本文件内，不动 MessageViews 的 WaveView）
+    // MARK: - Held-state vertical waveform bars (defined here for Plan B; MessageViews' WaveView is untouched)
 
-    /// 20 根细竖条（宽 5pt、圆角 2pt、#ff3b30），参差基准高度形成自然声波轮廓。
-    /// TimelineView(.animation) 每帧重算：
-    ///   条高[i] = 基准[i] × (0.30 + 0.70 × 当帧系数[i])
-    ///   当帧系数[i] = meterLevel(0~1)×0.75 + 每根独立相位呼吸 sin(t×4 + i×0.55)×0.25
-    /// 低电平时系数 ≈ 0~0.25 → 条高保持基准的 30%~47% 轻微呼吸（不至于静止）；
-    /// 说话时 meterLevel→1 → 条高冲到接近基准（上限对齐条组 70pt），起伏明显跟嘴型走。
+    /// 20 thin vertical bars (5pt wide, 2pt radius, #ff3b30) with staggered baselines forming a natural waveform outline.
+    /// TimelineView(.animation) recomputes each frame:
+    ///   barH[i] = baseline[i] x (0.30 + 0.70 x frameCoeff[i])
+    ///   frameCoeff[i] = meterLevel(0~1)x0.75 + independent phase breath sin(tx4 + ix0.55)x0.25
+    /// At low level coeff ~ 0~0.25 -> bars hold 30%~47% of baseline and breathe slightly (not static);
+    /// when speaking meterLevel->1 -> bars rise near baseline (capped at the 55pt group), clearly following the mouth.
     private struct HoldWaveBars: View {
         var meterLevel: Float
 
-        /// #ff3b30 波形红（条与底部文案共用）。
+        /// #ff3b30 waveform red (shared by bars and bottom caption).
         static let barRed = Color(red: 0.996, green: 0.231, blue: 0.188)
-        /// #1a1a1a 深色面板底（与主胶囊一致）。
+        /// #1a1a1a dark panel background (matches the main capsule).
         static let panelDark = Color(red: 0.102, green: 0.102, blue: 0.102)
 
-        /// 20 个参差基准高度（pt）：中间高两侧低的自然声波轮廓，峰值 48pt 对齐条组 55pt（V6.7 面板减半，基线同步 ×0.5）。
+        /// 20 staggered baseline heights (pt): a natural outline, high in the middle and low at the sides, peak 48pt against the 55pt group.
         private static let baselines: [CGFloat] = [
             10.5, 19.5, 30, 40.5, 27, 43.5, 33, 48, 22.5, 36,
             36, 22.5, 48, 33, 43.5, 27, 40.5, 30, 19.5, 10.5
@@ -310,7 +311,7 @@ struct InputBarView: View {
                 let lvl = Double(meterLevel)
                 HStack(alignment: .center, spacing: 4) {
                     ForEach(Array(Self.baselines.enumerated()), id: \.offset) { i, base in
-                        // 每根条独立相位：sin(t×速率 + i×相位差) → [0,1] 呼吸值
+                        // Each bar has its own phase: sin(txrate + ixdphase) -> [0,1] breath value
                         let breath = 0.5 + 0.5 * sin(t * 4.0 + Double(i) * 0.55)
                         let coeff = min(1.0, lvl * 0.75 + breath * 0.25)
                         let h = base * (0.30 + 0.70 * coeff)
@@ -323,17 +324,17 @@ struct InputBarView: View {
         }
     }
 
-    // MARK: - 语音状态（4 态）段
+    // MARK: - Voice status (4 states) section
 
     @ViewBuilder
     private var voiceStatusSection: some View {
-        // V6.5 去掉「正在校准…」提示（无意义）；只保留有实际反馈价值的态：
+        // V6.5 dropped the "Calibrating…" hint (meaningless); keep only states with real feedback value:
         if speech.emptyRecording {
-            voiceStatusBar(kind: .silent, primary: "没录到声音，请重说", secondary: "录音是空的，这次没有发送")
+            voiceStatusBar(kind: .silent, primary: NSLocalizedString("No sound captured, please speak again", comment: ""), secondary: NSLocalizedString("The recording was empty; nothing was sent", comment: ""))
         } else if speech.asrFailed {
-            voiceStatusBar(kind: .failed, primary: "识别失败，请再按一次", secondary: "没有听清，这次没有发送")
+            voiceStatusBar(kind: .failed, primary: NSLocalizedString("Recognition failed, press again", comment: ""), secondary: NSLocalizedString("Didn't catch that; nothing was sent", comment: ""))
         } else if speech.unavailable {
-            Text("语音不可用：请在 系统设置→VoxSign 中允许 麦克风 与 语音识别")
+            Text(NSLocalizedString("Voice unavailable: please allow Microphone and Speech Recognition in Settings → VoxSign", comment: ""))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -352,13 +353,13 @@ struct InputBarView: View {
         #endif
     }
 
-    // MARK: - 豆包式浅色语音状态条
+    // MARK: - Doubao-style light voice status bar
 
     private enum VoiceStatusKind {
         case listening, silent, cancelling, calibrating, failed
     }
 
-    /// 浅底深字豆包式状态条（#FFECEB 红 / #FFF4E5 橙 / #EDEDF0 灰 / #EAF0FF 蓝）。
+    /// Light-background dark-text Doubao-style status bar (#FFECEB red / #FFF4E5 orange / #EDEDF0 gray / #EAF0FF blue).
     @ViewBuilder
     private func voiceStatusBar(kind: VoiceStatusKind, primary: String, secondary: String) -> some View {
         let (bg, fg) = statusColors(kind)
@@ -432,51 +433,51 @@ struct InputBarView: View {
         }
     }
 
-    // MARK: - 按住说话手势（按下录音 / 上滑取消可滑回 / 松手发送）——语义原样迁移
+    // MARK: - Hold-to-talk gesture (press to record / swipe up to cancel and slide back / release to send) — semantics carried over
 
     #if canImport(Speech)
-    /// 麦克风按钮手势——按下录音；dy < -80pt 进取消态（可滑回继续）；松手按态发送。
+    /// Mic button gesture — press to record; dy < -80pt enters cancel state (slide back to continue); release sends per state.
     private var holdGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
-                // LAT：手指落下瞬间打点（主线程，最近于 touch down）。
+                // LAT: timestamp the instant the finger lands (main thread, closest to touch down).
                 SpeechRecognizer.markTouch()
-                // 【按住延迟修复】轻触觉反馈：手指一落下立刻震动，视觉/听觉之前先有"按到了"的
-                // 触感，不等引擎/波形，按压感知 <0.1s。
+                // [Hold-latency fix] light haptic: vibrate the instant the finger lands, giving a "pressed" touch
+                // before visuals/audio, no waiting for the engine/waveform; press feedback <0.1s.
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                // V6.4 按下立刻进入按住态（视觉先行，不等语音引擎异步启动）。
+                // V6.4 enter the held state on press (visual first, don't wait for the async voice engine).
                 pressActive = true
-                // 【加固1】仅在本轮尚无发起者时 start 一次；录音中或已发起过不重复 start（R2）。
+                // [Hardening 1] start only once when no initiator exists this round; no repeat start while recording/already initiated (R2).
                 if !speech.isRecording && !holdInitiated {
                     holdInitiated = true
                     cancelling = false
-                    // V6.5 异步启动语音引擎：波形先渲染，不被引擎初始化（音频会话/授权等）阻塞首帧——
-                    // 按下去→弹出波形应在 0.1 秒内完成。
+                    // V6.5 async engine start: the waveform renders first, not blocked by engine init (audio session/permission)
+                    // on the first frame — press -> waveform should appear within 0.1s.
                     DispatchQueue.main.async {
                         speech.startHold()
                     }
                 }
-                // 上滑 -80pt → 取消态；滑回 -80pt 以上 → 恢复录音（豆包同款可逆手感）。
+                // Swipe up -80pt -> cancel; slide back above -80pt -> resume recording (Doubao's reversible feel).
                 let c = v.translation.height < -80
                 if c != cancelling { cancelling = c }
             }
             .onEnded { v in
-                // V6.4 松手立即复位视觉态。
+                // V6.4 reset the visual state on release at once.
                 pressActive = false
-                // 【加固1/2】先记下本轮是否发起者，再复位标记。
+                // [Hardening 1/2] record whether this round was the initiator before resetting the flag.
                 let wasInitiator = holdInitiated
                 holdInitiated = false
                 if speech.isRecording {
                     if cancelling || v.translation.height < -80 {
-                        speech.cancelHold()   // 上滑取消：不发送
+                        speech.cancelHold()   // swipe-up cancel: do not send
                     } else {
-                        speech.stopHold()     // 松手：识别完自动发送
+                        speech.stopHold()     // release: auto-send after recognition
                     }
                 } else if wasInitiator {
-                    // 【加固2-R1 极轻点竞态兜底】isRecording 是 start() 里 DispatchQueue.main.async
-                    // 下一拍才置 true；手指先松时按旧逻辑什么都不做 → 随后置位 → 无手指却卡录音态。
-                    // 主队列 FIFO 保证此块排在置位块之后执行：若已置位则立即收尾（此时 installTap
-                    // 已同步完成，stopHold 安全）。
+                    // [Hardening 2-R1 light-tap race fallback] isRecording is set true on the next runloop tick in
+                    // start()'s DispatchQueue.main.async; if the finger releases first the old logic did nothing ->
+                    // then it got set -> stuck recording with no finger. Main-queue FIFO guarantees this block runs
+                    // after the set: if already set, finish at once (installTap is already done synchronously, stopHold is safe).
                     DispatchQueue.main.async {
                         if self.speech.isRecording { self.speech.stopHold() }
                     }

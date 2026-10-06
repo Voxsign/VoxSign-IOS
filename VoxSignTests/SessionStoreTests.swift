@@ -2,8 +2,9 @@
 //  SessionStoreTests.swift
 //  VoxSignTests
 //
-//  v2.4 会话仓库单测：初始化幂等 / 增删切 / 跨会话消息隔离 / 删最后一个被拒 / 持久化重载。
-//  用独立 UserDefaults suite 隔离，避免污染 standard。
+//  v2.4 session-store tests: idempotent init / create-switch-delete / cross-session message isolation /
+//  deleting the last session is rejected / persistence reload.
+//  Uses an isolated UserDefaults suite so the standard suite is never polluted.
 //
 
 import XCTest
@@ -23,23 +24,23 @@ final class SessionStoreTests: XCTestCase {
     }
 
     private func makeStore() -> SessionStore {
-        // 每次都新建实例，模拟"进程内重载"。
+        // Build a fresh instance each time to simulate an in-process reload.
         SessionStore(defaults: UserDefaults(suiteName: suiteName)!)
     }
 
-    // MARK: - ensureInitialSession 幂等
+    // MARK: - ensureInitialSession idempotent
 
     func testEnsureInitialSessionIdempotent() {
         let store = makeStore()
-        XCTAssertEqual(store.sessions.count, 0, "全新仓库应为空")
+        XCTAssertEqual(store.sessions.count, 0, "a brand-new store should be empty")
         store.ensureInitialSession()
         XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.sessions.first?.title, "新会话")
+        XCTAssertEqual(store.sessions.first?.title, "New Chat")
         XCTAssertEqual(store.currentSessionID, store.sessions.first?.id)
 
-        // 再次调用不得重复创建。
+        // Calling again must not create a duplicate.
         store.ensureInitialSession()
-        XCTAssertEqual(store.sessions.count, 1, "ensureInitialSession 幂等")
+        XCTAssertEqual(store.sessions.count, 1, "ensureInitialSession is idempotent")
     }
 
     // MARK: - create / switch / delete
@@ -49,61 +50,61 @@ final class SessionStoreTests: XCTestCase {
         store.ensureInitialSession()
         let first = store.currentSession!
 
-        let second = store.createSession(title: "工作")
+        let second = store.createSession(title: "Work")
         XCTAssertEqual(store.sessions.count, 2)
-        XCTAssertEqual(store.currentSessionID, second.id, "新建即切当前")
+        XCTAssertEqual(store.currentSessionID, second.id, "creating switches to the new session")
 
         store.switchTo(id: first.id)
         XCTAssertEqual(store.currentSessionID, first.id)
 
-        // 删除非当前会话。
+        // Delete a non-current session.
         XCTAssertTrue(store.deleteSession(id: second.id))
         XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.currentSessionID, first.id, "删非当前会话不影响当前")
+        XCTAssertEqual(store.currentSessionID, first.id, "deleting a non-current session does not change the current one")
     }
 
     func testDeleteCurrentSessionFallsBack() {
         let store = makeStore()
         store.ensureInitialSession()
         let first = store.currentSession!
-        let second = store.createSession(title: "临时")
+        let second = store.createSession(title: "Temp")
 
-        // 当前是 second，删除 second → 回退到剩余第一个。
+        // The current session is second; deleting second -> fall back to the remaining first.
         XCTAssertEqual(store.currentSessionID, second.id)
         XCTAssertTrue(store.deleteSession(id: second.id))
         XCTAssertEqual(store.sessions.count, 1)
-        XCTAssertEqual(store.currentSessionID, first.id, "删当前会话后切到剩余第一个")
+        XCTAssertEqual(store.currentSessionID, first.id, "after deleting the current session, switch to the remaining first")
     }
 
-    // MARK: - 跨会话消息隔离
+    // MARK: - Cross-session message isolation
 
     func testCrossSessionMessageIsolation() {
         let store = makeStore()
         store.ensureInitialSession()
         let a = store.currentSession!
-        let b = store.createSession(title: "会话B")
+        let b = store.createSession(title: "Session B")
 
-        // 会话 A 存消息。
-        store.saveMessages([StoredMessage(id: "m-a1", role: "user", text: "A 的消息")], for: a.id)
+        // Session A stores a message.
+        store.saveMessages([StoredMessage(id: "m-a1", role: "user", text: "A's message")], for: a.id)
 
-        // 切到 B 存不同消息。
+        // Switch to B and store different messages.
         store.switchTo(id: b.id)
-        store.saveMessages([StoredMessage(id: "m-b1", role: "user", text: "B 的消息"),
-                            StoredMessage(id: "m-b2", role: "harness", text: "B 的回复")], for: b.id)
+        store.saveMessages([StoredMessage(id: "m-b1", role: "user", text: "B's message"),
+                            StoredMessage(id: "m-b2", role: "harness", text: "B's reply")], for: b.id)
 
-        // 切回 A：数据完好，未被 B 污染。
+        // Switch back to A: data intact, not polluted by B.
         store.switchTo(id: a.id)
         let aMsgs = store.loadMessages(for: a.id)
         XCTAssertEqual(aMsgs.count, 1)
-        XCTAssertEqual(aMsgs.first?.text, "A 的消息")
+        XCTAssertEqual(aMsgs.first?.text, "A's message")
 
-        // B 数据独立。
+        // B's data is independent.
         let bMsgs = store.loadMessages(for: b.id)
         XCTAssertEqual(bMsgs.count, 2)
-        XCTAssertEqual(bMsgs.first?.text, "B 的消息")
+        XCTAssertEqual(bMsgs.first?.text, "B's message")
     }
 
-    // MARK: - 删最后一个会话被拒
+    // MARK: - Deleting the last session is rejected
 
     func testDeleteLastSessionRejected() {
         let store = makeStore()
@@ -111,28 +112,28 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 1)
         let only = store.currentSession!
 
-        XCTAssertFalse(store.deleteSession(id: only.id), "仅剩一个会话时删除应被拒绝")
-        XCTAssertEqual(store.sessions.count, 1, "拒绝后会话数不变")
+        XCTAssertFalse(store.deleteSession(id: only.id), "deleting the only session should be rejected")
+        XCTAssertEqual(store.sessions.count, 1, "rejected: session count unchanged")
         XCTAssertEqual(store.currentSessionID, only.id)
     }
 
-    // MARK: - 持久化重载
+    // MARK: - Persistence reload
 
     func testPersistenceReload() {
         let store = makeStore()
         store.ensureInitialSession()
-        let b = store.createSession(title: "持久化测试")
-        store.saveMessages([StoredMessage(id: "m1", role: "user", text: "要持久化的消息")], for: b.id)
+        let b = store.createSession(title: "Persistence test")
+        store.saveMessages([StoredMessage(id: "m1", role: "user", text: "message to persist")], for: b.id)
         store.switchTo(id: b.id)
 
-        // 新建实例读回（同一 suite）。
+        // A fresh instance reads back (same suite).
         let reloaded = SessionStore(defaults: UserDefaults(suiteName: suiteName)!)
-        XCTAssertEqual(reloaded.sessions.count, 2, "重载后会话数恢复")
-        XCTAssertEqual(reloaded.currentSessionID, b.id, "重载后当前会话 id 恢复")
+        XCTAssertEqual(reloaded.sessions.count, 2, "session count restored after reload")
+        XCTAssertEqual(reloaded.currentSessionID, b.id, "current session id restored after reload")
         let msgs = reloaded.loadMessages(for: b.id)
         XCTAssertEqual(msgs.count, 1)
-        XCTAssertEqual(msgs.first?.text, "要持久化的消息")
-        XCTAssertEqual(reloaded.sessions.first(where: { $0.id == b.id })?.title, "持久化测试")
+        XCTAssertEqual(msgs.first?.text, "message to persist")
+        XCTAssertEqual(reloaded.sessions.first(where: { $0.id == b.id })?.title, "Persistence test")
     }
 
     // MARK: - rename / touch
@@ -141,11 +142,11 @@ final class SessionStoreTests: XCTestCase {
         let store = makeStore()
         store.ensureInitialSession()
         let id = store.currentSessionID
-        store.renameSession(id: id, title: "新标题")
-        XCTAssertEqual(store.sessions.first?.title, "新标题")
+        store.renameSession(id: id, title: "New title")
+        XCTAssertEqual(store.sessions.first?.title, "New title")
 
         let before = store.sessions.first?.updatedAt ?? Date.distantPast
-        // touch 刷新 updatedAt。
+        // touch refreshes updatedAt.
         Thread.sleep(forTimeInterval: 0.05)
         store.touch(sessionID: id)
         let after = store.sessions.first?.updatedAt ?? Date.distantPast

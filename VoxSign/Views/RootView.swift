@@ -2,23 +2,23 @@
 //  RootView.swift
 //  VoxSign
 //
-//  根视图：顶栏（会话入口 + 连接状态点 + 标题 + …菜单）/ 红色打断系统条 / 对话流（气泡·执行卡·回执卡）/ 决策点区 / 底部输入条 / 设置页 / 会话列表。
+//  Root view: top bar (session entry + connection dot + title + … menu) / red interrupt system bar / chat flow (bubbles · exec card · receipt card) / decision zone / bottom input bar / Settings / session list.
 //
 
 import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    /// V6.3 顶栏归属胶囊 → 归类当前会话。
+    /// V6.3 top-bar ownership capsule -> file the current session.
     @State private var showClassifyCurrent: Bool = false
 
     var body: some View {
         ZStack(alignment: .leading) {
-            // 主内容区（对话流 + 输入条）
+            // Main content area (chat flow + input bar)
             VStack(spacing: 0) {
-                // T4 豆包式顶栏：[会话入口(低调圆角)] | Spacer | 中央(状态点+标题 / 机器名小字) | Spacer | [新会话(圆角) · …菜单(低调圆角)]
+                // T4 Doubao-style top bar: [session entry (subtle rounded)] | Spacer | center(status dot+title / small machine name) | Spacer | [new session (rounded) · … menu (subtle rounded)]
                 HStack(spacing: 6) {
-                    // 左上：会话历史入口（34pt 触控区 + 低调圆角背景）
+                    // Top-left: session history entry (34pt touch target + subtle rounded background)
                     Button {
                         model.showSessions = true
                     } label: {
@@ -33,17 +33,17 @@ struct RootView: View {
 
                     Spacer()
 
-                    // 中央：标题行（5pt 状态点 + VoxSign）+ 机器名小字（V6：点击切换机器）
+                    // Center: title row (5pt status dot + VoxSign) + small machine name (V6: tap to switch machine)
                     VStack(spacing: 1) {
                         HStack(spacing: 4) {
-                            // 5pt 连接/ harness 状态点（蓝=正常 · 红=离线 · 灰=重连/未知 · 橙=决策）
+                            // 5pt connection/harness status dot (blue=ok · red=offline · gray=reconnecting/unknown · orange=decision)
                             ConnectionDotView(conn: ConnectivityService.shared.state,
                                               harness: model.harnessState)
                             Text("VoxSign")
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundColor(.black)
                         }
-                        // V6.3 副标题行：机器名（点=换机器）+ 归属标签（点=归类当前会话）
+                        // V6.3 subtitle row: machine name (tap=switch machine) + ownership label (tap=file current session)
                         HStack(spacing: 6) {
                             Button {
                                 model.showMachinePicker = true
@@ -61,12 +61,12 @@ struct RootView: View {
                             }
                             .accessibilityIdentifier("vhs.machine")
 
-                            // 归属胶囊：未分组/角色/域 → 归类面板
+                            // Ownership capsule: ungrouped/role/domain -> filing panel
                             Button {
                                 showClassifyCurrent = true
                             } label: {
                                 HStack(spacing: 3) {
-                                    Image(systemName: model.currentContainerLabel == "未分组" ? "tray" : "folder")
+                                    Image(systemName: model.currentContainerLabel == "Ungrouped" ? "tray" : "folder")
                                         .font(.system(size: 8))
                                         .foregroundColor(.secondary)
                                     Text(model.currentContainerLabel)
@@ -88,7 +88,7 @@ struct RootView: View {
 
                     Spacer()
 
-                    // 右上：仅「新建会话」（V6.3：直接新会话，不再问角色/域——先聊后归）
+                    // Top-right: only "new session" (V6.3: direct new session, no more role/domain prompt — talk-then-file)
                     Button {
                         model.newSession()
                     } label: {
@@ -105,7 +105,7 @@ struct RootView: View {
                 .padding(.trailing, 10)
                 .background(.ultraThinMaterial)
 
-                // 红色打断系统条（可关闭）
+                // Red interrupt system bar (dismissible)
                 if let bar = model.systemBar {
                     SystemBarView(bar: bar,
                                   onRollback: { model.rollback() },
@@ -114,11 +114,11 @@ struct RootView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // 对话流
+                // Chat flow
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            // T4 豆包式空态：居中图标 + 文案（无欢迎屏、无示例卡片）。
+                            // T4 Doubao-style empty state: centered icon + text (no welcome screen, no example cards).
                             if model.rows.isEmpty {
                                 VStack(spacing: 14) {
                                     ZStack {
@@ -129,7 +129,7 @@ struct RootView: View {
                                             .font(.system(size: 26, weight: .medium))
                                             .foregroundColor(VSColor.blue)
                                     }
-                                    Text("按住🎤说话，或点⌨打字")
+                                    Text(NSLocalizedString("Hold 🎤 to talk, or tap ⌨ to type", comment: ""))
                                         .font(.system(size: 14))
                                         .foregroundColor(Color(red: 0.682, green: 0.682, blue: 0.698)) // #AEAEB2
                                 }
@@ -137,7 +137,7 @@ struct RootView: View {
                                 .padding(.top, 120)
                             }
 
-                            // T4 §3a：列表顶部居中时间戳（首条 user/harness 气泡的 HH:mm），下方留 4pt。
+                            // T4 §3a: centered timestamp at the top of the list (HH:mm of the first user/harness bubble), 4pt below.
                             if let topTime = topMessageTimeText {
                                 HStack {
                                     Spacer()
@@ -155,28 +155,28 @@ struct RootView: View {
                         }
                         .padding(12)
                     }
-                    // T2 滚动修复：改用 scrollTick（每次追加气泡 +1），
-                    // 确保说完话后 Harness 的回复/执行卡/回执一定滚动到可见。
+                    // T2 scroll fix: use scrollTick (+1 on every appended bubble) to ensure the harness reply / exec
+                    // card / receipt always scrolls into view after the user speaks.
                     .onChange(of: model.scrollTick) { _ in
                         if let last = model.rows.last {
-                            // T3 豆包式：快速轻滚到底（0.1s），不僵硬不打断阅读。
+                            // T3 Doubao-style: quick light scroll to bottom (0.1s), not jerky, not interrupting reading.
                             withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(last.id, anchor: .bottom) }
                         }
                     }
                 }
 
-                // 一屏一个决策点
+                // One decision point per screen
                 DecisionZoneView(decision: model.decision, onAnswer: { ans in model.answer(ans) })
                     .padding(.horizontal, 12)
 
-                // T3 豆包式：不再显示任何诊断行/轮询标识（保持纯对话流）。
+                // T3 Doubao-style: no diagnostic line / poll indicator (keep a pure chat flow).
                 InputBarView()
             }
             .background(VSColor.bg.ignoresSafeArea())
             .preferredColorScheme(.light)
 
-            // V6 豆包式左侧抽屉（左右切开：左=会话列表，右=聊天区露出）：
-            // 半透明遮罩点击关闭；抽屉 320pt 宽从左侧滑入，覆盖到状态栏/底部。
+            // V6 Doubao-style left drawer (split left/right: left=session list, right=chat area peeks out):
+            // a translucent mask closes on tap; the 320pt drawer slides in from the left, covering the status bar / bottom.
             if model.showSessions {
                 Color.black.opacity(0.25)
                     .ignoresSafeArea()
@@ -204,12 +204,12 @@ struct RootView: View {
         }
     }
 
-    /// V6：关闭会话抽屉（带动画）。
+    /// V6: close the session drawer (animated).
     private func closeSessions() {
         model.showSessions = false
     }
 
-    /// T4 §3a：从 rows.first 起跳过 typing/execCard/receipt，取第一条 user/harness 气泡的时间，格式 HH:mm。
+    /// T4 §3a: starting at rows.first, skip typing/execCard/receipt; take the first user/harness bubble's time, formatted HH:mm.
     private static let topTimeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
@@ -234,8 +234,8 @@ struct RootView: View {
         case .user(let b): UserBubbleView(bubble: b)
         case .harness(let b): HarnessBubbleView(bubble: b)
         case .typing: TypingView(text: model.typingText)
-        // T3 豆包式：执行过程不再铺七项流程卡，统一收敛成"三点正在思考"（与豆包一致）。
-        // v2.1 I18：思考态文案动态升级（5s/10s），由 model.typingText 驱动。
+        // T3 Doubao-style: the execution phase no longer renders a seven-stage card, collapsing to "three dots thinking" (same as Doubao).
+        // v2.1 I18: thinking-state text escalates dynamically (5s/10s), driven by model.typingText.
         case .execCard: TypingView(text: model.typingText)
         case .receipt(let r):
             ReceiptCardView(receipt: r.receipt, undo: r.undo, badges: r.badges, onRollback: { model.rollback() })
@@ -243,10 +243,10 @@ struct RootView: View {
     }
 }
 
-// MARK: - 顶栏 5pt 连接状态点（豆包式极简）
+// MARK: - Top-bar 5pt connection status dot (Doubao-style minimal)
 
-/// 5pt 圆点：颜色由 `TopBarDot.tone(conn:harness:)` 决定（红/蓝/灰/橙）；
-/// busy / decision 时沿用呼吸动画。不带文字、不带胶囊——保持顶栏克制。
+/// 5pt dot: color is decided by `TopBarDot.tone(conn:harness:)` (red/blue/gray/orange);
+/// breathing animation while busy / decision. No text, no capsule — keep the top bar restrained.
 struct ConnectionDotView: View {
     let conn: ConnectionState
     let harness: HarnessState
@@ -277,7 +277,7 @@ struct ConnectionDotView: View {
         }
     }
 
-    /// 仅在 harness 正在忙碌 / 需要决策时做呼吸动画（静态状态点不抖）。
+    /// Breathe only while the harness is busy / needs a decision (static dots do not pulse).
     private var animating: Bool {
         harness == .busy || harness == .decision
     }

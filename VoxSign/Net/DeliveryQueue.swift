@@ -2,15 +2,16 @@
 //  DeliveryQueue.swift
 //  VoxSign
 //
-//  T1 后台能力 · 投递队列（DeliveryChannel）：
-//  断网/后台/提交失败时把「文本+mode+request_id」持久化入队，网络恢复后按序补投。
-//  幂等由 request_id 保证（服务端 POST /v1/tasks 同 request_id → 200 deduped）。
-//  零第三方依赖：文件持久化（Application Support）+ URLSession（复用 APIClient）。
+//  T1 background capability · delivery queue:
+//  On network loss / background / submit failure, persist (text+mode+request_id) to a queue and
+//  flush in order once the network recovers. Idempotency is guaranteed by request_id (the server
+//  dedupes POST /v1/tasks with the same request_id -> 200 deduped).
+//  Zero third-party deps: file persistence (Application Support) + URLSession (reuses APIClient).
 //
 
 import Foundation
 
-/// 队列中的一条待投递任务（可持久化编码）。
+/// One pending submission in the queue (Codable for persistence).
 struct PendingSubmission: Codable, Equatable {
     let requestId: String
     let text: String
@@ -27,27 +28,27 @@ struct PendingSubmission: Codable, Equatable {
     }
 }
 
-/// 投递队列：FIFO + 持久化 + 退避重试。
-/// - 线程安全：所有操作在主 actor / 串行访问下调用（AppModel 已是 @MainActor）。
-/// - 持久化：Application Support/DeliveryQueue.jsonl；写失败不丢内存态。
-/// - 上限：maxStored 条（防无限膨胀）；入队超限丢弃最旧。
+/// Delivery queue: FIFO + persistence + backoff retry.
+/// - Thread safety: all calls happen on the main actor / serialized access (AppModel is @MainActor).
+/// - Persistence: Application Support/DeliveryQueue.jsonl; memory state is kept if a write fails.
+/// - Cap: maxStored entries (prevents unbounded growth); overflow drops the oldest.
 final class DeliveryQueue {
     static let shared = DeliveryQueue()
 
-    /// 存储根目录（测试可注入）。默认 Application Support。
+    /// Storage root directory (injectable in tests). Defaults to Application Support.
     var storageDirectory: URL? {
         didSet { reload() }
     }
-    /// 提交闭包（测试可注入；默认走 APIClient.submitTask）。
+    /// Submission closure (injectable in tests; defaults to APIClient.submitTask).
     var submitter: ((PendingSubmission) async throws -> Void)?
-    /// 最大退避秒数（指数退避 2^n，封顶）。
+    /// Max backoff seconds (exponential 2^n, capped).
     var maxBackoffSeconds: Int = 300
-    /// 入队上限。
+    /// Enqueue cap.
     var maxStored: Int = 100
 
-    /// 当前队列（供 UI/测试读取）。
+    /// Current queue (for UI/tests to read).
     private(set) var pending: [PendingSubmission] = []
-    /// 最后一次提交失败时间（退避计算）。
+    /// Time of the last submit failure (for backoff).
     private(set) var lastFailureAt: Date?
 
     private let queueURL = "DeliveryQueue.jsonl"
@@ -59,7 +60,7 @@ final class DeliveryQueue {
         reload()
     }
 
-    // MARK: - 持久化
+    // MARK: - Persistence
 
     private func queueFile() -> URL? {
         guard let dir = storageDirectory else {
@@ -74,8 +75,8 @@ final class DeliveryQueue {
         return dir.appendingPathComponent(queueURL)
     }
 
-    /// 迁移旧版 "VoiceSign" 离线队列目录到 "VoxSign"，避免在途未提交任务文件丢失。
-    /// 仅当旧目录存在且新目录不存在时整体移动；否则不做任何事。
+    /// Migrate the legacy "VoiceSign" offline-queue directory to "VoxSign" so in-flight submissions are not lost.
+    /// Only moves the whole directory when the old one exists and the new one does not; otherwise does nothing.
     private func migrateLegacyDirectory(from oldDir: URL, to newDir: URL) {
         let fm = FileManager.default
         guard fm.fileExists(atPath: oldDir.path), !fm.fileExists(atPath: newDir.path) else { return }
@@ -100,41 +101,41 @@ final class DeliveryQueue {
         try? data.write(to: file, options: .atomic)
     }
 
-    // MARK: - 队列操作
+    // MARK: - Queue operations
 
-    /// 入队（断网/失败时）。返回是否入队成功。
+    /// Enqueue (on network loss/failure). Returns whether enqueue succeeded.
     @discardableResult
     func enqueue(_ item: PendingSubmission) -> Bool {
         if pending.count >= maxStored {
-            if pending.isEmpty { return false } // 队列已满且为空（maxStored=0）
-            pending.removeFirst()               // 超限丢最旧
+            if pending.isEmpty { return false } // cap reached and empty (maxStored=0)
+            pending.removeFirst()               // overflow: drop oldest
         }
         pending.append(item)
         persist()
         return true
     }
 
-    /// 队列是否为空。
+    /// Whether the queue is empty.
     var isEmpty: Bool { pending.isEmpty }
 
-    /// 待投递条数。
+    /// Number of pending submissions.
     var count: Int { pending.count }
 
-    /// 清空（投递成功后全清）。
+    /// Clear all (after a successful flush).
     func clearAll() {
         pending.removeAll()
         lastFailureAt = nil
         persist()
     }
 
-    // MARK: - 投递
+    // MARK: - Flush
 
-    /// 尝试补投全部：逐条提交；失败即停（保序 + 退避），成功一条移出一条。
-    /// - Returns: 本次成功投递的条数。
+    /// Try to flush everything: submit one by one; stop on first failure (order-preserving + backoff); remove on success.
+    /// - Returns: number delivered in this pass.
     @discardableResult
     func flush() async -> Int {
         guard !pending.isEmpty else { return 0 }
-        // 退避：距上次失败不足 2^retry 秒则整轮等待，避免无意义风暴。
+        // Backoff: if less than 2^retry seconds since the last failure, wait this whole pass (avoid pointless storms).
         if let failAt = lastFailureAt {
             let first = pending[0]
             let backoff = min(maxBackoffSeconds, 1 << min(first.retryCount, 9))
@@ -150,14 +151,14 @@ final class DeliveryQueue {
                 if let submitter = submitter {
                     try await submitter(item)
                 }
-                pending.remove(at: idx)          // 成功即移出
+                pending.remove(at: idx)          // remove on success
                 delivered += 1
                 lastFailureAt = nil
             } catch {
-                pending[idx].retryCount += 1     // 失败计数 +1（下次退避更长）
+                pending[idx].retryCount += 1     // failure count +1 (longer backoff next time)
                 lastFailureAt = Date()
                 persist()
-                break                             // 保序：头阻塞则停
+                break                             // order-preserving: stop when the head blocks
             }
         }
         persist()

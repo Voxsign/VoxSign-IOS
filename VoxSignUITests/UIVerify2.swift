@@ -1,8 +1,9 @@
 //
-//  UIVerify2.swift — 临时验收辅助测试 第 2 轮（非产品代码）
-//  目标补齐：AI 气泡信息行（会话切回后回执还原为 harness 气泡）/ 弹出 …菜单 /
-//           用户气泡附件 chip（直接在 TextEditor 输入，不依赖剪贴板）/ 会话列表 / 滑动删除。
-//  前置：上一轮已把自建服务器(127.0.0.1:8897/m7-token)写入 UserDefaults 并留有历史会话。
+//  UIVerify2.swift — ad-hoc acceptance helper test, round 2 (not product code).
+//  Coverage: AI bubble info row (receipt restored as a harness bubble after switching back) /
+//            pop the … menu / user-bubble attachment chip (typed directly into TextEditor, no clipboard) /
+//            session list / swipe-to-delete.
+//  Precondition: a self-hosted server (127.0.0.1:8897/m7-token) was written to UserDefaults in the previous round, with history sessions.
 //
 
 import XCTest
@@ -28,29 +29,29 @@ final class UIVerify2: XCTestCase {
         guard input.waitForExistence(timeout: 25) else { return }
         sleep(1)
 
-        // 1) 再发一条，拿新回执
+        // 1) Send another message to get a fresh receipt
         input.tap()
         input.typeText("verify2 second run")
         if app.buttons["vhs.send"].waitForExistence(timeout: 3) {
             app.buttons["vhs.send"].tap()
         }
         let done = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS '已完成' OR label CONTAINS '撤销'")
+            NSPredicate(format: "label CONTAINS 'Done' OR label CONTAINS 'Undo'")
         ).firstMatch
         _ = done.waitForExistence(timeout: 40)
         sleep(1)
 
-        // 2) 会话列表 → 新建会话 → 回列表 → 切回旧会话（回执还原为 harness 气泡，带信息行）
+        // 2) Session list -> new session -> back to the list -> switch back to the old session (receipt restored as a harness bubble with info row)
         app.buttons["vhs.sessions"].tap()
         sleep(1)
         if app.buttons["vhs.session.new"].waitForExistence(timeout: 5) {
             app.buttons["vhs.session.new"].tap()
         }
         sleep(1)
-        // 回到旧会话：打开列表 → 点第二条（旧会话）
+        // Back to the old session: open the list -> tap the second row (old session)
         app.buttons["vhs.sessions"].tap()
         sleep(1)
-        // 区12：会话列表（多会话）
+        // Region 12: session list (multiple sessions)
         shot("12-session-list")
         let cells = app.cells
         _ = cells.firstMatch.waitForExistence(timeout: 5)
@@ -60,10 +61,10 @@ final class UIVerify2: XCTestCase {
             cells.firstMatch.tap()
         }
         sleep(2)
-        // 区13：切回旧会话 → AI 气泡轻量信息行（时间 + …菜单，无🔔🔊）
+        // Region 13: back on the old session -> AI bubble light info row (time + … menu, no speaker/volume)
         shot("13-harness-bubble-info-row")
 
-        // 3) 点 AI 气泡下方的小 ellipsis（信息行菜单）
+        // 3) Tap the small ellipsis below the AI bubble (info-row menu)
         let win = app.windows.firstMatch.frame
         var ell: XCUIElement?
         for b in app.buttons.allElementsBoundByIndex {
@@ -76,14 +77,14 @@ final class UIVerify2: XCTestCase {
         }
         ell?.tap()
         sleep(1)
-        // 区14：AI 气泡 …菜单（复制/朗读/分享）
+        // Region 14: AI bubble … menu (Copy / Speak / Share)
         shot("14-bubble-menu")
-        if app.buttons["复制"].waitForExistence(timeout: 3) {
-            app.buttons["复制"].tap()
+        if app.buttons["Copy"].waitForExistence(timeout: 3) {
+            app.buttons["Copy"].tap()
             sleep(1)
         }
 
-        // 4) 添加资料：直接在 TextEditor 输入文本 → 添加 → 用户气泡 chip
+        // 4) Add a resource: type text directly into the TextEditor -> Add -> user-bubble chip
         app.buttons["vhs.attach"].tap()
         sleep(1)
         let editor = app.textViews.firstMatch
@@ -91,36 +92,36 @@ final class UIVerify2: XCTestCase {
             editor.tap()
             editor.typeText("attached note from verify")
         }
-        let addBtns = app.buttons.matching(NSPredicate(format: "label == '添加'"))
+        let addBtns = app.buttons.matching(NSPredicate(format: "label == 'Add'"))
         if addBtns.firstMatch.waitForExistence(timeout: 3) {
             addBtns.firstMatch.tap()
         }
         sleep(1)
-        // 5) 发带附件的消息
+        // 5) Send the message with the attachment
         input.tap()
         input.typeText("send with attachment")
         if app.buttons["vhs.send"].waitForExistence(timeout: 3) {
             app.buttons["vhs.send"].tap()
         }
         _ = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS '已完成' OR label CONTAINS '撤销'")
+            NSPredicate(format: "label CONTAINS 'Done' OR label CONTAINS 'Undo'")
         ).firstMatch.waitForExistence(timeout: 30)
         sleep(2)
-        // 区15：用户气泡附件 chip（灰底小标签）
+        // Region 15: user-bubble attachment chip (small gray tag)
         shot("15-user-bubble-chip")
 
-        // 6) 会话列表：滑动删除一个会话
+        // 6) Session list: swipe-delete one session
         app.buttons["vhs.sessions"].tap()
         sleep(1)
         _ = cells.firstMatch.waitForExistence(timeout: 5)
         if cells.count >= 1 {
             cells.firstMatch.swipeLeft()
             sleep(1)
-            let del = app.buttons["删除"]
+            let del = app.buttons["Delete"]
             if del.waitForExistence(timeout: 3) { del.tap() }
             sleep(1)
         }
-        // 区16：会话列表（删除后）
+        // Region 16: session list (after delete)
         shot("16-session-list-after-delete")
     }
 }
