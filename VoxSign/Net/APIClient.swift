@@ -75,10 +75,13 @@ final class APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // D0 贯穿 trace：每个 HTTP 请求带一个 X-Request-Id（UUID），与服务端日志对齐排障。
+        req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Request-Id")
         if !settings.token.isEmpty {
             req.setValue("Bearer \(settings.token)", forHTTPHeaderField: "Authorization")
         }
-        DiagLogger.shared.log("NET", "\(method) \(url.absoluteString) token=\(settings.token.isEmpty ? "none" : "set")")
+        // A4（验收硬指标）：诊断日志不再输出 Bearer token 明文，只记"有/无"。
+        DiagLogger.shared.log("NET", "\(method) \(url.absoluteString) token=\(settings.token.isEmpty ? "无" : "有")")
         if let body = body {
             req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
@@ -102,7 +105,14 @@ final class APIClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
-    // MARK: - Endpoints
+    /// A4 脱敏：机器码等准敏感标识 → 仅记前后各 2 位，中间打码（短串一律 ***）。
+    private static func masked(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard t.count > 4 else { return "***" }
+        return "\(t.prefix(2))***\(t.suffix(2))"
+    }
+
+    // MARK: - 端点
 
     /// POST /v1/tasks {text, space?, request_id?, attachments?} -> 202 {task_id,status}; same request_id -> 200 deduped.
     /// v2.4: when attachments are non-empty they are submitted in the body (the server ignores unknown fields).
@@ -148,7 +158,8 @@ final class APIClient {
                         receipt: j["receipt"] as? String,
                         attribution: j["attribution"] as? String,
                         reversible: j["reversible"] as? Bool,
-                        error: j["error"] as? String)
+                        error: j["error"] as? String,
+                        reply: VSLogic.normalizeReply(j["reply"]))
     }
 
     /// POST /v1/tasks/{id}/answer {answer} (option id or "execute"). 409 = no pending decision point.
@@ -286,8 +297,8 @@ final class APIClient {
     /// Always hits the cloud base (cloudBase), independent of the currently selected self-hosted server.
     func lookupMachine(code: String) async throws -> MachineInfo {
         if Self.machineLookupMock {
-            DiagLogger.shared.log("NET", "lookupMachine mock: code=\(code)")
-            return MachineInfo(name: "Office Mac", base: "http://192.168.8.186:8897", online: true, token: "m7-token")
+            DiagLogger.shared.log("NET", "lookupMachine mock: code=\(Self.masked(code))")
+            return MachineInfo(name: "办公室 Mac", base: "http://192.168.8.186:8897", online: true, token: "m7-token")
         }
         let clean = settings.cloudBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: clean + "/v1/devices/lookup") else {
@@ -296,15 +307,17 @@ final class APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Request-Id")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["machine_code": code])
-        DiagLogger.shared.log("NET", "lookupMachine \(url.absoluteString) code=\(code)")
+        DiagLogger.shared.log("NET", "lookupMachine \(url.absoluteString) code=\(Self.masked(code))")
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.transport("No HTTP response")
         }
         let j = decodeJSON(data)
         guard (200...299).contains(http.statusCode), let base = j["base"] as? String else {
-            DiagLogger.shared.log("NET", "lookupMachine -> \(http.statusCode) \(String(decoding: data, as: UTF8.self))")
+            // 响应体含访问凭证(token)，诊断日志不落 body（A4 脱敏）。
+            DiagLogger.shared.log("NET", "lookupMachine → \(http.statusCode)（响应体含凭证，已脱敏）")
             throw APIError.http(http.statusCode, String(decoding: data, as: UTF8.self))
         }
         return MachineInfo(name: j["name"] as? String ?? "Server",
@@ -321,6 +334,7 @@ final class APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         req.timeoutInterval = 4
+        req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Request-Id")
         do {
             let (_, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else { return false }
