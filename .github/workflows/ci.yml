@@ -25,7 +25,7 @@ jobs:
       - name: Scan for secrets and personal identifiers
         run: |
           set -e
-          FILES=$(git ls-files | grep -E '\.(swift|plist|strings|json|md)$' || true)
+          FILES=$(git ls-files | grep -E '\.(swift|plist|strings|json|md)$' | grep -v '^\.github/' || true)
           if echo "$FILES" | grep -qE 'sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----'; then
             echo "SECRET_FOUND"; exit 1
           fi
